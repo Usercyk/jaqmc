@@ -23,9 +23,9 @@ from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
 from jaqmc.workflow.vmc import VMCWorkflow
 
-from .config import HallConfig
+from .config import HallSphereConfig
 from .data import data_init
-from .estimator import OneRDM, PairCorrelation, PenalizedLoss
+from .estimator import SphereOneRDM, SpherePairCorrelation, SpherePenalizedLoss
 from .hamiltonian import SpherePotential
 
 logger = logging.getLogger(__name__)
@@ -95,17 +95,17 @@ class HallEvalWorkflow(EvaluationWorkflow):
 
 def configure_system(
     cfg: ConfigManagerLike,
-) -> tuple[HallConfig, Any]:
+) -> tuple[HallSphereConfig, Any]:
     """Build the shared system objects for quantum Hall workflows.
 
     Returns:
         Tuple of (system_config, wavefunction).
     """
-    system_config: HallConfig = cfg.get_module(
-        "system", "jaqmc.app.hall.config:HallConfig"
+    system_config: HallSphereConfig = cfg.get_module(
+        "system", "jaqmc.app.hall.config:HallSphereConfig"
     )
 
-    wf = cfg.get_module("wf", "jaqmc.app.hall.wavefunction.mhpo")
+    wf = cfg.get_module("wf", "jaqmc.app.hall.wavefunction.sphere.mhpo")
     wf.nspins = system_config.nspins
     wf.monopole_strength = system_config.flux / 2
     wf.flux = system_config.flux
@@ -116,7 +116,7 @@ def configure_system(
 def make_estimators(
     cfg: ConfigManagerLike,
     wf: Any,
-    system_config: HallConfig,
+    system_config: HallSphereConfig,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
     estimators: dict[str, EstimatorLike] = {}
@@ -148,7 +148,7 @@ def make_estimators(
         estimators["total"] = TotalEnergy()
 
         if system_config.lz_penalty or system_config.l2_penalty:
-            estimators["penalty"] = PenalizedLoss(
+            estimators["penalty"] = SpherePenalizedLoss(
                 lz_center=system_config.lz_center,
                 lz_penalty=system_config.lz_penalty,
                 l2_penalty=system_config.l2_penalty,
@@ -163,13 +163,13 @@ def make_estimators(
     if cfg.get("estimators.enabled.pair_correlation", False):
         estimators["pair_correlation"] = cfg.get(
             "estimators.pair_correlation",
-            PairCorrelation(),
+            SpherePairCorrelation(),
         )
 
     if cfg.get("estimators.enabled.one_rdm", False):
         estimators["one_rdm"] = cfg.get(
             "estimators.one_rdm",
-            OneRDM(flux=system_config.flux, f_log_psi=wf.logpsi),
+            SphereOneRDM(flux=system_config.flux, f_log_psi=wf.logpsi),
         )
 
     return estimators

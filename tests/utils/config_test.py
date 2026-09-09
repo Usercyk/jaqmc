@@ -360,7 +360,7 @@ def test_get_module_adds_config_path_to_resolution_error(mocker):
         ConfigError,
         match=r"Invalid config at 'wf.module': resolver diagnostic",
     ):
-        cfg.get_module("wf", "jaqmc.app.hall.wavefunction.mhpo")
+        cfg.get_module("wf", "jaqmc.app.hall.wavefunction.sphere.mhpo")
 
 
 def test_to_yaml_with_comments():

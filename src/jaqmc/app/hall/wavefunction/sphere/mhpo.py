@@ -21,12 +21,12 @@ from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
-from .jastrow import SphericalJastrow
+from .jastrow import SphereJastrow
 
-__all__ = ["MHPO"]
+__all__ = ["SphereMHPO"]
 
 
-class MonopoleOrbitals(nn.Module):
+class SphereMonopoleOrbitals(nn.Module):
     r"""Monopole harmonic orbital construction.
 
     Combines learned features with monopole harmonic basis functions
@@ -64,7 +64,7 @@ class MonopoleOrbitals(nn.Module):
         return jnp.moveaxis(orbitals, -1, 0)  # (ndets, nelec, nelec)
 
 
-class MHPO(Wavefunction[HallData, ComplexWFOutput]):
+class SphereMHPO(Wavefunction[HallData, ComplexWFOutput]):
     r"""Monopole harmonics product orbital ansatz on the Haldane sphere.
 
     Architecture:
@@ -109,12 +109,12 @@ class MHPO(Wavefunction[HallData, ComplexWFOutput]):
             num_heads=self.num_heads,
             heads_dim=self.heads_dim,
         )
-        self.orbital_layer = MonopoleOrbitals(
+        self.orbital_layer = SphereMonopoleOrbitals(
             Q=reduced_flux / 2,
             nspins=self.nspins,
             ndets=self.ndets,
         )
-        self.jastrow_layer = SphericalJastrow(nspins=self.nspins)
+        self.jastrow_layer = SphereJastrow(nspins=self.nspins)
 
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons

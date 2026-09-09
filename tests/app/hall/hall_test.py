@@ -10,18 +10,66 @@ import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.app.hall.config import HallConfig, InteractionType
+from jaqmc.app.hall.config import (
+    HallDiskConfig,
+    HallGeometryConfig,
+    HallSphereConfig,
+    HallTorusConfig,
+    InteractionType,
+)
 from jaqmc.app.hall.data import HallData, data_init
-from jaqmc.app.hall.estimator.penalized_loss import PenalizedLoss
+from jaqmc.app.hall.estimator.sphere.penalized_loss import SpherePenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
-from jaqmc.app.hall.wavefunction.free import Free
-from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
-from jaqmc.app.hall.wavefunction.laughlin import Laughlin
-from jaqmc.app.hall.wavefunction.mhpo import MHPO
+from jaqmc.app.hall.wavefunction.sphere.free import SphereFree
+from jaqmc.app.hall.wavefunction.sphere.jastrow import SphereJastrow
+from jaqmc.app.hall.wavefunction.sphere.laughlin import SphereLaughlin
+from jaqmc.app.hall.wavefunction.sphere.mhpo import SphereMHPO
 from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
 from jaqmc.laplacian import forward_laplacian, make_laplacian_input
+from jaqmc.utils.config import ConfigManager
 from jaqmc.utils.wiring import wire
+
+
+class TestHallConfig:
+    def test_geometry_configs_share_common_fields(self):
+        for config_type in (HallSphereConfig, HallTorusConfig, HallDiskConfig):
+            config = config_type()
+            assert isinstance(config, HallGeometryConfig)
+            assert config.nspins == (3, 0)
+            assert config.interaction_type is InteractionType.coulomb
+            np.testing.assert_allclose(config.interaction_strength, 1.0)
+
+    def test_sphere_config_keeps_flux(self):
+        assert HallSphereConfig(flux=4).flux == 4
+
+
+class TestHallTorusConfig:
+    def test_periods_satisfy_tau_and_flux_quantization(self):
+        tau = 0.5 + 0.5j * np.sqrt(3)
+        config = HallTorusConfig(flux=3, tau=tau)
+
+        np.testing.assert_allclose(config.l2 / config.l1, tau)
+        np.testing.assert_allclose(config.area, 2 * np.pi * config.flux)
+
+    def test_config_manager_deserializes_tau_components(self):
+        manager = ConfigManager({"system": {"flux": 4, "tau": [0.5, 1.25]}})
+        config = manager.get_module("system", HallTorusConfig)
+
+        np.testing.assert_allclose(config.tau, 0.5 + 1.25j)
+        assert manager.resolved_config["system"]["tau"] == [0.5, 1.25]
+
+    @pytest.mark.parametrize(
+        "tau",
+        [0j, 1 - 1j, complex(float("inf"), 1)],
+    )
+    def test_rejects_invalid_tau(self, tau):
+        with pytest.raises(ValueError, match="tau"):
+            HallTorusConfig(tau=tau)
+
+    def test_rejects_invalid_flux(self):
+        with pytest.raises(ValueError, match="flux"):
+            HallTorusConfig(flux=0)
 
 
 def _sample(key, batch, nelec):
@@ -52,12 +100,12 @@ def _eval_single(estimator, data):
 
 class TestHallData:
     def test_data_init_shapes(self):
-        cfg = HallConfig(flux=2, nspins=(3, 0))
+        cfg = HallSphereConfig(flux=2, nspins=(3, 0))
         batched = data_init(cfg, size=16, rngs=jax.random.PRNGKey(0))
         assert batched.data.electrons.shape == (16, 3, 2)
 
     def test_data_init_ranges(self):
-        cfg = HallConfig(flux=4, nspins=(2, 1))
+        cfg = HallSphereConfig(flux=4, nspins=(2, 1))
         batched = data_init(cfg, size=32, rngs=jax.random.PRNGKey(1))
         theta = batched.data.electrons[..., 0]
         phi = batched.data.electrons[..., 1]
@@ -162,7 +210,7 @@ class TestSphericalKinetic:
     def test_hessian_and_forward_laplacian_agree_for_laughlin(self):
         """Cross-check both modes on a Laughlin quasihole with nonzero L."""
         data_arr = _sample(jax.random.PRNGKey(932), 3, nelec=2)
-        wf = Laughlin(excitation_lz=1)
+        wf = SphereLaughlin(excitation_lz=1)
         wire(wf, nspins=(2, 0), flux=4)
         wf.init_params(HallData(electrons=data_arr[0]), jax.random.PRNGKey(1))
 
@@ -210,7 +258,7 @@ class TestPenalizedLoss:
 
     def test_no_penalty(self):
         """With zero penalties, loss == total_energy."""
-        est = PenalizedLoss(lz_penalty=0.0, l2_penalty=0.0)
+        est = SpherePenalizedLoss(lz_penalty=0.0, l2_penalty=0.0)
         stats = {"total_energy": 5.0}
         out, _ = est.evaluate_single_walker(
             {},
@@ -223,7 +271,7 @@ class TestPenalizedLoss:
 
     def test_lz_penalty_only(self):
         """lz_penalty adds (Lz - center)^2 term."""
-        est = PenalizedLoss(lz_center=1.0, lz_penalty=2.0, l2_penalty=0.0)
+        est = SpherePenalizedLoss(lz_center=1.0, lz_penalty=2.0, l2_penalty=0.0)
         stats = {
             "total_energy": 10.0,
             "angular_momentum_z": 3.0,
@@ -241,7 +289,7 @@ class TestPenalizedLoss:
 
     def test_both_penalties(self):
         """Both lz and l2 penalties contribute."""
-        est = PenalizedLoss(lz_center=0.0, lz_penalty=1.0, l2_penalty=0.5)
+        est = SpherePenalizedLoss(lz_center=0.0, lz_penalty=1.0, l2_penalty=0.5)
         stats = {
             "total_energy": 1.0,
             "angular_momentum_z": 2.0,
@@ -266,13 +314,13 @@ class TestSphericalJastrow:
     def test_parameters_are_float32(self, x64_mode):
         input_dtype = jnp.float64 if x64_mode else jnp.float32
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
-        params = SphericalJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), electrons)
+        params = SphereJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), electrons)
 
         assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
     def test_all_same_spin(self):
         """All electrons same spin: parallel pairs only, no antiparallel."""
-        jastrow = SphericalJastrow(nspins=(3, 0))
+        jastrow = SphereJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
         out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
@@ -280,7 +328,7 @@ class TestSphericalJastrow:
 
     def test_mixed_spins(self):
         """Mixed spins: both parallel and antiparallel pairs."""
-        jastrow = SphericalJastrow(nspins=(2, 1))
+        jastrow = SphereJastrow(nspins=(2, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
         out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
@@ -288,7 +336,7 @@ class TestSphericalJastrow:
 
     def test_one_per_spin(self):
         """One electron per spin: no parallel pairs, only antiparallel."""
-        jastrow = SphericalJastrow(nspins=(1, 1))
+        jastrow = SphereJastrow(nspins=(1, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 2)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
         out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
@@ -296,7 +344,7 @@ class TestSphericalJastrow:
 
     def test_symmetric_under_same_spin_swap(self):
         """Jastrow is symmetric: swapping two same-spin electrons is invariant."""
-        jastrow = SphericalJastrow(nspins=(3, 0))
+        jastrow = SphereJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
         original: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
@@ -309,7 +357,7 @@ class TestFreeWavefunction:
     """Free wavefunction: antisymmetry and exact kinetic energy."""
 
     def _make_free(self, nspins, flux):
-        wf = Free()
+        wf = SphereFree()
         wire(wf, nspins=nspins, flux=flux)
         return wf
 
@@ -373,7 +421,7 @@ class TestLaughlinWavefunction:
     """Laughlin wavefunction: filling validation and exact kinetic energy."""
 
     def _make_laughlin(self, nspins, flux, flux_per_elec=1, excitation_lz=0):
-        wf = Laughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
+        wf = SphereLaughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
         wire(wf, nspins=nspins, flux=flux)
         return wf
 
@@ -457,7 +505,7 @@ class TestMHPO:
     """MHPO wavefunction: antisymmetry and composite fermion branch."""
 
     def _make_mhpo(self, nspins=(2, 1), flux=4, flux_per_elec=0):
-        wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
+        wf = SphereMHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
         wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
         wf.flux_per_elec = flux_per_elec
         electrons = _sample(jax.random.PRNGKey(0), 1, sum(nspins))[0]

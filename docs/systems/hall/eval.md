@@ -87,7 +87,7 @@ estimators enabled through boolean flags.
 - `TotalEnergy` is added automatically by the workflow and is not configurable
   via a config key.
 - When `system.lz_penalty` or `system.l2_penalty` are nonzero, a
-  `PenalizedLoss` estimator is added automatically.
+  `SpherePenalizedLoss` estimator is added automatically.
 - `estimators.enabled.energy` defaults to `true`.
 - `estimators.enabled.density` defaults to `false`.
 - `estimators.enabled.pair_correlation` defaults to `false`.
@@ -121,7 +121,7 @@ Accumulates a histogram of the polar angle $\theta$ to measure electron density 
 Computes the pair correlation function $g(\theta)$ on the Haldane sphere.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.estimator.pair_correlation.PairCorrelation
+.. config-defaults:: jaqmc.app.hall.estimator.sphere.pair_correlation.SpherePairCorrelation
    :prefix: estimators.pair_correlation
 ```
 
@@ -130,6 +130,6 @@ Computes the pair correlation function $g(\theta)$ on the Haldane sphere.
 Computes the one-body reduced density matrix in the monopole harmonic basis.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.estimator.one_rdm.OneRDM
+.. config-defaults:: jaqmc.app.hall.estimator.sphere.one_rdm.SphereOneRDM
    :prefix: estimators.one_rdm
 ```

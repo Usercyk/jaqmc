@@ -12,7 +12,7 @@ from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 
-__all__ = ["Free"]
+__all__ = ["SphereFree"]
 
 
 def make_monopole_harm(q: float, ell: float, m: float):
@@ -50,7 +50,7 @@ def make_monopole_harm(q: float, ell: float, m: float):
     return Y_qlm
 
 
-class Free(Wavefunction[HallData, ComplexWFOutput]):
+class SphereFree(Wavefunction[HallData, ComplexWFOutput]):
     """Free-electron wavefunction using monopole harmonics.
 
     Fills the lowest Landau level with monopole harmonics. Useful as a

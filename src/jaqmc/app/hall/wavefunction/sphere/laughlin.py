@@ -12,10 +12,10 @@ from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 
-__all__ = ["Laughlin"]
+__all__ = ["SphereLaughlin"]
 
 
-class Laughlin(Wavefunction[HallData, ComplexWFOutput]):
+class SphereLaughlin(Wavefunction[HallData, ComplexWFOutput]):
     """Laughlin wavefunction for ground and quasiparticle/quasihole states.
 
     Constructs the Laughlin state as a Slater determinant of composite

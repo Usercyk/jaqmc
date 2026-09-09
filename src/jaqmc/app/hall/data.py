@@ -6,7 +6,7 @@
 import jax
 from jax import numpy as jnp
 
-from jaqmc.app.hall.config import HallConfig
+from jaqmc.app.hall.config import HallSphereConfig
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
 
@@ -24,7 +24,9 @@ class HallData(Data):
     electrons: jnp.ndarray
 
 
-def data_init(config: HallConfig, size: int, rngs: PRNGKey) -> BatchedData[HallData]:
+def data_init(
+    config: HallSphereConfig, size: int, rngs: PRNGKey
+) -> BatchedData[HallData]:
     """Create uniform initial samples on the sphere.
 
     Args:

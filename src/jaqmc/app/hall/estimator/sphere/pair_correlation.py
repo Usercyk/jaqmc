@@ -25,7 +25,7 @@ from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class PairCorrelation(Estimator):
+class SpherePairCorrelation(Estimator):
     r"""Pair correlation function :math:`g(\theta)` on the Haldane sphere.
 
     For each pair of electrons :math:`(i < j)`, computes the geodesic

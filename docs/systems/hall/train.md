@@ -33,7 +33,7 @@ Defines the quantum Hall system on the Haldane sphere.
 See <project:index.md> for physics background and usage examples.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.config.HallConfig
+.. config-defaults:: jaqmc.app.hall.config.HallSphereConfig
    :prefix: system
 ```
 
@@ -54,25 +54,25 @@ See <project:index.md> for background on each architecture.
 ### MHPO options (`wf.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.mhpo.MHPO
+.. config-defaults:: jaqmc.app.hall.wavefunction.sphere.mhpo.SphereMHPO
    :prefix: wf
-   :scope: MHPO
+   :scope: SphereMHPO
 ```
 
 ### Laughlin options (`wf.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.laughlin.Laughlin
+.. config-defaults:: jaqmc.app.hall.wavefunction.sphere.laughlin.SphereLaughlin
    :prefix: wf
-   :scope: Laughlin
+   :scope: SphereLaughlin
 ```
 
 ### Free options (`wf.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.free.Free
+.. config-defaults:: jaqmc.app.hall.wavefunction.sphere.free.SphereFree
    :prefix: wf
-   :scope: Free
+   :scope: SphereFree
 ```
 
 (hall-train-sampler)=
@@ -184,7 +184,7 @@ typically overridden via config. The same definitions are used by
 [Estimators](../../api-reference/estimators.md).
 
 `TotalEnergy` automatically sums all `energy:`-prefixed components. When
-`system.lz_penalty` or `system.l2_penalty` are nonzero, a `PenalizedLoss`
+`system.lz_penalty` or `system.l2_penalty` are nonzero, a `SpherePenalizedLoss`
 estimator is added automatically. Neither is configurable via a config key.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)

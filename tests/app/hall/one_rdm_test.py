@@ -11,7 +11,7 @@ import pytest
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
-from jaqmc.app.hall.estimator.one_rdm import OneRDM, make_monopole_harm
+from jaqmc.app.hall.estimator.sphere.one_rdm import SphereOneRDM, make_monopole_harm
 from jaqmc.data import BatchedData
 
 
@@ -77,7 +77,7 @@ class TestOneRDMEvaluateSingleWalker:
         flux = 2
         nelec = 3
         log_psi = _make_lll(nelec, Q=flux / 2)
-        estimator = OneRDM(flux=flux, f_log_psi=log_psi)
+        estimator = SphereOneRDM(flux=flux, f_log_psi=log_psi)
 
         data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
         estimator.init(data, jax.random.PRNGKey(1))
@@ -95,7 +95,7 @@ class TestOneRDMEvaluateSingleWalker:
         flux = 2
         nelec = 3
         log_psi = _make_lll(nelec, Q=flux / 2)
-        estimator = OneRDM(flux=flux, f_log_psi=log_psi)
+        estimator = SphereOneRDM(flux=flux, f_log_psi=log_psi)
 
         data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
         estimator.init(data, jax.random.PRNGKey(1))
@@ -130,7 +130,7 @@ class TestOneRDMSmoke:
         n_steps = setup["n_steps"]
         log_psi = setup["log_psi"]
 
-        estimator = OneRDM(flux=flux, f_log_psi=log_psi)
+        estimator = SphereOneRDM(flux=flux, f_log_psi=log_psi)
         sample_data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
         estimator.init(sample_data, jax.random.PRNGKey(1))
 
@@ -175,7 +175,7 @@ class TestOneRDMPipeline:
         n_walkers = 8
         log_psi = _make_lll(nelec, Q=flux / 2)
 
-        estimator = OneRDM(flux=flux, f_log_psi=log_psi)
+        estimator = SphereOneRDM(flux=flux, f_log_psi=log_psi)
 
         electrons = _sample(jax.random.PRNGKey(0), n_walkers, nelec)
         batched_data = BatchedData(

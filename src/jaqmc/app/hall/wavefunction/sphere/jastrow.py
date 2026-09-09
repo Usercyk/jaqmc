@@ -7,7 +7,7 @@ from flax import linen as nn
 from jax import numpy as jnp
 
 
-class SphericalJastrow(nn.Module):
+class SphereJastrow(nn.Module):
     """Spherical chord-distance Jastrow factor.
 
     Computes electron-electron Jastrow correlations using the chord
