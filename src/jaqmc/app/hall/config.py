@@ -3,9 +3,9 @@
 
 """System configurations for quantum Hall geometries."""
 
-import math
 from enum import StrEnum
 
+from jax import numpy as jnp
 from serde.core import field as serde_field
 
 from jaqmc.utils.config import configurable_dataclass
@@ -124,7 +124,7 @@ class HallTorusConfig(HallGeometryConfig):
             raise ValueError(f"flux must be a positive integer. Got {self.flux!r}.")
 
         tau = complex(self.tau)
-        if not math.isfinite(tau.real) or not math.isfinite(tau.imag):
+        if not jnp.isfinite(tau.real) or not jnp.isfinite(tau.imag):
             raise ValueError(f"tau must be finite. Got {tau!r}.")
         if tau.imag <= 0:
             raise ValueError(
@@ -134,17 +134,17 @@ class HallTorusConfig(HallGeometryConfig):
         self.tau = tau
 
     @property
-    def l1(self) -> float:
+    def l1(self) -> jnp.ndarray:
         r"""Return the positive-real period :math:`L_1/\ell_B`."""
-        return math.sqrt(2 * math.pi * self.flux / self.tau.imag)
+        return jnp.sqrt(2 * jnp.pi * self.flux / self.tau.imag)
 
     @property
-    def l2(self) -> complex:
+    def l2(self) -> jnp.ndarray:
         r"""Return the complex period :math:`L_2/\ell_B=L_1\tau/\ell_B`."""
         return self.l1 * self.tau
 
     @property
-    def area(self) -> float:
+    def area(self) -> jnp.ndarray:
         r"""Return the torus area in units of :math:`\ell_B^2`."""
         return self.l1 * self.l2.imag
 

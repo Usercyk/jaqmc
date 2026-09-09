@@ -34,3 +34,6 @@ docs/contrib/packages/
 jupyter_execute/
 # Synced notebooks
 notebooks/
+
+# development
+/develop/
