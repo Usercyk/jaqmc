@@ -27,6 +27,35 @@ from jaqmc.wavefunction.output.orbital import SplitChannelDense
 __all__ = ["TorusMHPO"]
 
 
+def _lowest_landau_level_kernel_init(
+    flux: int,
+) -> nn.initializers.Initializer:
+    """Initialize only the lowest-Landau-level coefficient block.
+
+    Returns:
+        A dense-kernel initializer that zeros the psi1 and psi2 blocks.
+    """
+    default_init = nn.initializers.lecun_normal()
+
+    def init(key, shape, dtype=jnp.float32):
+        kernel = default_init(key, shape, dtype)
+        num_basis = 3 * flux
+        if shape[-1] % num_basis:
+            raise ValueError(
+                f"Output dimension {shape[-1]} is not divisible by {num_basis}."
+            )
+
+        # DenseGeneral flattens (basis, electron, determinant) before invoking
+        # its initializer. Keep psi_0 random while psi_1 and psi_2 start at zero.
+        outputs_per_basis = shape[-1] // num_basis
+        lll_outputs = flux * outputs_per_basis
+        output_mask = jnp.arange(shape[-1]) < lll_outputs
+        mask_shape = (1,) * (len(shape) - 1) + (shape[-1],)
+        return kernel * output_mask.reshape(mask_shape)
+
+    return init
+
+
 def torus_envelope(
     z: jnp.ndarray, flux: int, tau: complex, theta_terms: int
 ) -> jnp.ndarray:
@@ -117,13 +146,16 @@ class TorusOrbitals(nn.Module):
         # orbitals. Here n = 0, 1, 2, hence 3 * N_phi basis functions.
         num_basis = 3 * self.flux
         features = [num_basis, sum(self.nspins), self.ndets]
+        kernel_init = _lowest_landau_level_kernel_init(self.flux)
         self.orbitals_real = SplitChannelDense(
             channels=self.nspins,
             features=features,
+            kernel_init=kernel_init,
         )
         self.orbitals_imag = SplitChannelDense(
             channels=self.nspins,
             features=features,
+            kernel_init=kernel_init,
         )
 
     def __call__(self, h_one: jnp.ndarray, z: jnp.ndarray) -> jnp.ndarray:

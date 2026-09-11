@@ -14,17 +14,26 @@ class SplitChannelDense(nn.Module):
         channels: Tuple of (num_spin_up, num_spin_down) electrons.
         features: Output feature dimensions for DenseGeneral.
         use_bias: Whether to use bias in dense layers.
+        kernel_init: Initializer for the dense kernels.
+        bias_init: Initializer for the dense biases.
     """
 
     channels: tuple[int, int]
     features: list[int]
     use_bias: bool = True
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
     def __call__(self, h_one: jnp.ndarray):
         return jnp.concatenate(
             [
-                nn.DenseGeneral(self.features, use_bias=self.use_bias)(h)
+                nn.DenseGeneral(
+                    self.features,
+                    use_bias=self.use_bias,
+                    kernel_init=self.kernel_init,
+                    bias_init=self.bias_init,
+                )(h)
                 for h in split_nonempty_channels(h_one, self.channels)
             ]
         )
