@@ -16,6 +16,7 @@ from flax import linen as nn
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
+from jaqmc.app.hall.wavefunction.torus.jastrow import TorusJastrow
 from jaqmc.array_types import Params
 from jaqmc.utils.torus import get_torus_lattice
 from jaqmc.utils.wiring import runtime_dep
@@ -160,6 +161,9 @@ class TorusMHPO(Wavefunction[HallData, ComplexWFOutput]):
             nspins=self.nspins, flux=self.flux, tau=self.tau, ndets=self.ndets
         )
 
+        l1, l2, _ = get_torus_lattice(self.flux, self.tau)
+        self.jastrow_layer = TorusJastrow(nspins=self.nspins, l1=l1, l2=l2)
+
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons
 
@@ -189,6 +193,11 @@ class TorusMHPO(Wavefunction[HallData, ComplexWFOutput]):
         signs, logdets = jnp.linalg.slogdet(orbitals)
         logmax = jnp.max(logdets)
         logpsi = jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax
+
+        # Cusp condition
+        jastrow = self.jastrow_layer(electrons)
+        logpsi += jastrow
+
         return ComplexWFOutput(logpsi=logpsi)
 
     def logpsi(self, params: Params, data: HallData) -> jnp.ndarray:
