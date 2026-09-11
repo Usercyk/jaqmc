@@ -159,7 +159,8 @@ def make_sampler(
     if isinstance(system_config, HallSphereConfig):
         return cfg.get("sampler", MCMCSampler(sampling_proposal=sphere_proposal))
     if isinstance(system_config, HallTorusConfig):
-        return cfg.get("sampler", MCMCSampler(sampling_proposal=torus_proposal))
+        proposal = partial(torus_proposal, tau=system_config.tau)
+        return cfg.get("sampler", MCMCSampler(sampling_proposal=proposal))
     raise NotImplementedError(f"Unsupported Hall geometry: {type(system_config)}")
 
 
