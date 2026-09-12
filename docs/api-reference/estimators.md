@@ -87,6 +87,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.density.fractional.FractionalAxis
    :members:
 .. autoclass:: jaqmc.estimator.density.SphericalDensity
+.. autoclass:: jaqmc.estimator.density.TorusDensity
 ```
 
 ### Loss and gradient

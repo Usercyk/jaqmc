@@ -7,7 +7,7 @@ Physics, derivations, and computational details behind JaQMC's built-in estimato
 - <project:ecp.md> — Semi-local effective core potential (ECP) contributions, quadrature details
 - <project:ph.md> — Local pseudopotential, or Pseudo-Hamiltonian (PH), parallel to the semi-local ECP family
 - <project:spin.md> — Spin contamination measurement via coordinate-swap ratios
-- <project:density.md> — Electron density histograms (Cartesian, fractional, and spherical)
+- <project:density.md> — Electron density histograms (Cartesian, fractional, spherical, and torus)
 - <project:loss-grad.md> — Gradient estimator and outlier clipping
 
 If you are implementing new estimators rather than tuning built-ins, continue with

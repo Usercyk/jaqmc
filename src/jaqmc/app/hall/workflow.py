@@ -10,7 +10,7 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike
-from jaqmc.estimator.density import SphericalDensity
+from jaqmc.estimator.density import SphericalDensity, TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic, TorusKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.estimator.total_energy import TotalEnergy
@@ -203,6 +203,13 @@ def make_torus_estimators(
             ),
         )
         estimators["total"] = TotalEnergy()
+
+    if cfg.get("estimators.enabled.density", False):
+        estimators["density"] = cfg.get(
+            "estimators.density",
+            TorusDensity(),
+        )
+
     return estimators
 
 

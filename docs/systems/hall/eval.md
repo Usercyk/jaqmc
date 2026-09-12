@@ -109,10 +109,18 @@ estimators enabled through boolean flags.
 
 ### Density (`estimators.density.*`)
 
-Accumulates a histogram of the polar angle $\theta$ to measure electron density on the sphere.
+On the sphere, this accumulates a histogram of the polar angle $\theta$:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.density.spherical.SphericalDensity
+   :prefix: estimators.density
+```
+
+On the torus, it accumulates a 2-D histogram in the fractional coordinates
+$(u,v)\in[0,1)^2$:
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.density.torus.TorusDensity
    :prefix: estimators.density
 ```
 

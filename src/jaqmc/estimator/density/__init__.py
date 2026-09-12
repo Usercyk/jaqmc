@@ -6,6 +6,7 @@
 from .cartesian import CartesianAxis, CartesianDensity
 from .fractional import FractionalAxis, FractionalDensity
 from .spherical import SphericalDensity
+from .torus import TorusDensity
 
 __all__ = [
     "CartesianAxis",
@@ -13,4 +14,5 @@ __all__ = [
     "FractionalAxis",
     "FractionalDensity",
     "SphericalDensity",
+    "TorusDensity",
 ]

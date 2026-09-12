@@ -2,13 +2,14 @@
 
 For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators), [solid](#solid-estimators), [hall](#hall-estimators)).
 
-The density estimator accumulates histograms of electron positions over evaluation steps, producing a discretized picture of the electron density $n(\mathbf{r})$. Three variants match the three geometry types in JaQMC:
+The density estimator accumulates histograms of electron positions over evaluation steps, producing a discretized picture of the electron density $n(\mathbf{r})$. Four variants match the supported coordinate systems in JaQMC:
 
 - {class}`~jaqmc.estimator.density.CartesianDensity` — projects positions onto user-defined directions in Cartesian space.  Suited to molecules and other open-boundary systems.
 - {class}`~jaqmc.estimator.density.FractionalDensity` — converts positions to fractional (lattice) coordinates and histograms within $[0, 1)$.  Suited to periodic solids.
 - {class}`~jaqmc.estimator.density.SphericalDensity` — histograms polar angle $\theta$ (and optionally azimuthal angle $\varphi$) on the Haldane sphere.  Suited to FQHE simulations.
+- {class}`~jaqmc.estimator.density.TorusDensity` — histograms the fractional torus coordinates $(u,v)$ in $[0,1)^2$. Suited to FQHE simulations on a torus.
 
-All three are disabled by default and enabled via `estimators.enabled.density: true`.
+All four are disabled by default and enabled via `estimators.enabled.density: true`.
 
 ## How it works
 
@@ -69,4 +70,4 @@ Entries set to `null` are filtered out before histogram construction.
 ## See also
 
 - Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators), [Hall](#hall-estimators)
-- API: {class}`~jaqmc.estimator.density.CartesianDensity`, {class}`~jaqmc.estimator.density.FractionalDensity`, {class}`~jaqmc.estimator.density.SphericalDensity`
+- API: {class}`~jaqmc.estimator.density.CartesianDensity`, {class}`~jaqmc.estimator.density.FractionalDensity`, {class}`~jaqmc.estimator.density.SphericalDensity`, {class}`~jaqmc.estimator.density.TorusDensity`

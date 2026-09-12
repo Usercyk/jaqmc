@@ -16,6 +16,7 @@ from jaqmc.estimator.density import (
     FractionalAxis,
     FractionalDensity,
     SphericalDensity,
+    TorusDensity,
 )
 
 
@@ -175,6 +176,61 @@ class TestSphericalDensity:
         hist = state["histogram"][0]
         _assert_bin(hist, 0, 1.0)
         _assert_bin(hist, 2, 1.0)
+
+
+# -------------------------------------------------------------------
+# TorusDensity
+# -------------------------------------------------------------------
+
+
+class TestTorusDensity:
+    def test_2d_shape(self):
+        est = TorusDensity(bins_u=20, bins_v=40)
+        data = _TestData(electrons=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        n = jax.device_count()
+        assert state["histogram"].shape == (n, 20, 40)
+        assert state["compensation"].shape == (n, 20, 40)
+
+    def test_2d_binning(self):
+        est = TorusDensity(bins_u=4, bins_v=5)
+        electrons = jnp.array([[[0.3, 0.7], [0.9, 0.1]]])
+        batched = _make_batched(electrons)
+        data = _TestData(electrons=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        hist = state["histogram"][0]
+        _assert_bin(hist, (1, 3), 1.0)
+        _assert_bin(hist, (3, 0), 1.0)
+        np.testing.assert_allclose(float(hist.sum()), 2.0)
+
+    def test_periodic_wrapping(self):
+        est = TorusDensity(bins_u=4, bins_v=4)
+        electrons = jnp.array([[[-0.1, 1.1], [1.9, -1.9]]])
+        batched = _make_batched(electrons)
+        data = _TestData(electrons=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        _assert_bin(state["histogram"][0], (3, 0), 2.0)
+
+    def test_u_only(self):
+        est = TorusDensity(bins_u=4, bins_v=None)
+        electrons = jnp.array([[[0.3, 0.7]]])
+        batched = _make_batched(electrons)
+        data = _TestData(electrons=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        assert state["histogram"].shape == (jax.device_count(), 4)
+        _assert_bin(state["histogram"][0], 1, 1.0)
+
+    def test_custom_data_field(self):
+        est = TorusDensity(bins_u=4, bins_v=4, data_field="positions")
+        positions = jnp.array([[[0.3, 0.7]]])
+        batched = _make_batched_positions(positions)
+        data = _PositionData(positions=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        _assert_bin(state["histogram"][0], (1, 2), 1.0)
 
 
 # -------------------------------------------------------------------

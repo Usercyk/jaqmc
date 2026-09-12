@@ -24,6 +24,8 @@ from jaqmc.app.hall.wavefunction.sphere.free import SphereFree
 from jaqmc.app.hall.wavefunction.sphere.jastrow import SphereJastrow
 from jaqmc.app.hall.wavefunction.sphere.laughlin import SphereLaughlin
 from jaqmc.app.hall.wavefunction.sphere.mhpo import SphereMHPO
+from jaqmc.app.hall.workflow import make_torus_estimators
+from jaqmc.estimator.density import TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
 from jaqmc.laplacian import forward_laplacian, make_laplacian_input
@@ -70,6 +72,26 @@ class TestHallTorusConfig:
     def test_rejects_invalid_flux(self):
         with pytest.raises(ValueError, match="flux"):
             HallTorusConfig(flux=0)
+
+    def test_density_estimator(self):
+        manager = ConfigManager(
+            {
+                "estimators": {
+                    "enabled": {"energy": False, "density": True},
+                    "density": {"bins_u": 12, "bins_v": 18},
+                }
+            }
+        )
+        estimators = make_torus_estimators(
+            manager,
+            object(),
+            HallTorusConfig(),
+        )
+
+        assert set(estimators) == {"density"}
+        assert isinstance(estimators["density"], TorusDensity)
+        assert estimators["density"].bins_u == 12
+        assert estimators["density"].bins_v == 18
 
 
 def _sample(key, batch, nelec):
