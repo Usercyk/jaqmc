@@ -2,5 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .sphere import SphereOneRDM, SpherePairCorrelation, SpherePenalizedLoss
+from .torus import TorusPairCorrelation
 
-__all__ = ["SphereOneRDM", "SpherePairCorrelation", "SpherePenalizedLoss"]
+__all__ = [
+    "SphereOneRDM",
+    "SpherePairCorrelation",
+    "SpherePenalizedLoss",
+    "TorusPairCorrelation",
+]

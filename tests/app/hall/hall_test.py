@@ -3,7 +3,7 @@
 
 """Tests for the quantum Hall workflow components."""
 
-from typing import Literal
+from typing import Literal, cast
 
 import jax
 import numpy as np
@@ -18,6 +18,7 @@ from jaqmc.app.hall.config import (
     InteractionType,
 )
 from jaqmc.app.hall.data import HallData, data_init
+from jaqmc.app.hall.estimator import TorusPairCorrelation
 from jaqmc.app.hall.estimator.sphere.penalized_loss import SpherePenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
 from jaqmc.app.hall.wavefunction.sphere.free import SphereFree
@@ -92,6 +93,26 @@ class TestHallTorusConfig:
         assert isinstance(estimators["density"], TorusDensity)
         assert estimators["density"].bins_u == 12
         assert estimators["density"].bins_v == 18
+
+    def test_pair_correlation_estimator(self):
+        system = HallTorusConfig(flux=4, tau=0.5 + 1j)
+        manager = ConfigManager(
+            {
+                "estimators": {
+                    "enabled": {"energy": False, "pair_correlation": True},
+                    "pair_correlation": {"bins": 24},
+                }
+            }
+        )
+
+        estimators = make_torus_estimators(manager, object(), system)
+
+        assert set(estimators) == {"pair_correlation"}
+        pair_correlation = estimators["pair_correlation"]
+        assert isinstance(pair_correlation, TorusPairCorrelation)
+        assert pair_correlation.bins == 24
+        assert pair_correlation.flux == system.flux
+        assert pair_correlation.tau == system.tau
 
 
 def _sample(key, batch, nelec):
@@ -345,7 +366,7 @@ class TestSphericalJastrow:
         jastrow = SphereJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        out = cast(jax.Array, jastrow.apply(params, electrons))
         assert jnp.isfinite(out)
 
     def test_mixed_spins(self):
@@ -353,7 +374,7 @@ class TestSphericalJastrow:
         jastrow = SphereJastrow(nspins=(2, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        out = cast(jax.Array, jastrow.apply(params, electrons))
         assert jnp.isfinite(out)
 
     def test_one_per_spin(self):
@@ -361,7 +382,7 @@ class TestSphericalJastrow:
         jastrow = SphereJastrow(nspins=(1, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 2)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        out = cast(jax.Array, jastrow.apply(params, electrons))
         assert jnp.isfinite(out)
 
     def test_symmetric_under_same_spin_swap(self):
@@ -369,9 +390,9 @@ class TestSphericalJastrow:
         jastrow = SphereJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        original: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        original = cast(jax.Array, jastrow.apply(params, electrons))
         e_swap = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
-        swapped: jax.Array = jastrow.apply(params, e_swap)  # type: ignore[assignment]
+        swapped = cast(jax.Array, jastrow.apply(params, e_swap))
         np.testing.assert_allclose(float(original), float(swapped), atol=1e-5)
 
 

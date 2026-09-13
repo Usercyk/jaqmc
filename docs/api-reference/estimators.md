@@ -90,6 +90,13 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.density.TorusDensity
 ```
 
+### Pair correlation
+
+```{eval-rst}
+.. autoclass:: jaqmc.app.hall.estimator.SpherePairCorrelation
+.. autoclass:: jaqmc.app.hall.estimator.TorusPairCorrelation
+```
+
 ### Loss and gradient
 
 ```{eval-rst}

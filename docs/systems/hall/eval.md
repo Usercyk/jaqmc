@@ -126,10 +126,19 @@ $(u,v)\in[0,1)^2$:
 
 ### Pair correlation (`estimators.pair_correlation.*`)
 
-Computes the pair correlation function $g(\theta)$ on the Haldane sphere.
+On the sphere, this computes $g(\theta)$ from geodesic pair angles:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.sphere.pair_correlation.SpherePairCorrelation
+   :prefix: estimators.pair_correlation
+```
+
+On the torus, it computes the radial $g(r)$ using minimum-image distances in
+magnetic-length units. The normalized result and its bin centers are written
+to the digest as `pair_correlation` and `pair_correlation:r`:
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.hall.estimator.torus.pair_correlation.TorusPairCorrelation
    :prefix: estimators.pair_correlation
 ```
 

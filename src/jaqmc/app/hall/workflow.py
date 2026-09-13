@@ -26,7 +26,12 @@ from jaqmc.workflow.vmc import VMCWorkflow
 
 from .config import HallGeometryConfig, HallSphereConfig, HallTorusConfig
 from .data import data_init
-from .estimator import SphereOneRDM, SpherePairCorrelation, SpherePenalizedLoss
+from .estimator import (
+    SphereOneRDM,
+    SpherePairCorrelation,
+    SpherePenalizedLoss,
+    TorusPairCorrelation,
+)
 from .hamiltonian import SpherePotential, TorusPotential
 
 logger = logging.getLogger(__name__)
@@ -208,6 +213,15 @@ def make_torus_estimators(
         estimators["density"] = cfg.get(
             "estimators.density",
             TorusDensity(),
+        )
+
+    if cfg.get("estimators.enabled.pair_correlation", False):
+        estimators["pair_correlation"] = cfg.get(
+            "estimators.pair_correlation",
+            TorusPairCorrelation(
+                flux=system_config.flux,
+                tau=system_config.tau,
+            ),
         )
 
     return estimators
