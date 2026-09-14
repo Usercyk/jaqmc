@@ -11,7 +11,6 @@ from jax import numpy as jnp
 from jaqmc.app.hall.data import HallData
 from jaqmc.app.hall.estimator.torus import TorusPairCorrelation
 from jaqmc.data import BatchedData, Data
-from jaqmc.utils.torus import get_torus_lattice
 
 
 class _PositionData(Data):
@@ -27,18 +26,17 @@ def _make_batched(electrons: jnp.ndarray) -> BatchedData:
 
 class TestTorusPairCorrelation:
     def test_init_uses_device_local_histograms(self):
-        estimator = TorusPairCorrelation(bins=12, flux=2, tau=1j)
+        estimator = TorusPairCorrelation(bins_u=12, bins_v=16)
         data = HallData(electrons=jnp.zeros((2, 2)))
 
         state = estimator.init(data, jax.random.PRNGKey(0))
 
-        assert state["histogram"].shape == (jax.device_count(), 12)
-        assert state["compensation"].shape == (jax.device_count(), 12)
-        l1, _, _ = get_torus_lattice(2, 1j)
-        np.testing.assert_allclose(estimator._max_distance, l1 / 2)
+        expected_shape = (jax.device_count(), 12, 16)
+        assert state["histogram"].shape == expected_shape
+        assert state["compensation"].shape == expected_shape
 
-    def test_square_torus_uses_periodic_minimum_image(self):
-        estimator = TorusPairCorrelation(bins=8, flux=2, tau=1j)
+    def test_directed_displacements_are_wrapped_periodically(self):
+        estimator = TorusPairCorrelation(bins_u=8, bins_v=8)
         data = _make_batched(
             jnp.array(
                 [
@@ -47,31 +45,30 @@ class TestTorusPairCorrelation:
                 ]
             )
         )
-        estimator.init(data.unbatched_example(), jax.random.PRNGKey(0))
 
-        distances = estimator._pair_distances(data.data.electrons)
+        displacements = estimator._pair_displacements(data.data.electrons)
 
-        l1, _, _ = get_torus_lattice(2, 1j)
         np.testing.assert_allclose(
-            distances, jnp.full(2, 0.2 * l1), rtol=2e-6, atol=1e-6
+            displacements,
+            [[0.2, 0.0], [-0.2, 0.0], [0.2, 0.0], [-0.2, 0.0]],
+            atol=1e-6,
         )
 
-    def test_strongly_sheared_basis_finds_true_minimum_image(self):
-        tau = 10 + 1j
-        estimator = TorusPairCorrelation(bins=8, flux=2, tau=tau)
-        data = _make_batched(jnp.array([[[0.0, 0.0], [0.0, 0.1]]]))
-        estimator.init(data.unbatched_example(), jax.random.PRNGKey(0))
+    def test_periodic_neighbors_are_binned_near_the_center(self):
+        estimator = TorusPairCorrelation(bins_u=8, bins_v=8)
+        electrons = jnp.array([[[0.0, 0.0], [0.0, 0.99]]])
 
-        distances = estimator._pair_distances(data.data.electrons)
+        displacements = estimator._pair_displacements(electrons)
 
-        l1, _, _ = get_torus_lattice(2, tau)
-        # 0.1 * tau = 1 + 0.1j; subtracting one L1 image leaves 0.1j.
-        np.testing.assert_allclose(distances, jnp.asarray([0.1 * l1]), rtol=1e-6)
-        np.testing.assert_allclose(estimator._max_distance, l1 / 2, rtol=1e-6)
+        np.testing.assert_allclose(
+            displacements,
+            [[0.0, 0.01], [0.0, -0.01]],
+            atol=1e-6,
+        )
 
-    def test_exact_annulus_normalization(self):
-        estimator = TorusPairCorrelation(bins=4, flux=2, tau=1j)
-        data = _make_batched(jnp.array([[[0.0, 0.0], [0.1, 0.0]]]))
+    def test_exact_bin_area_normalization_and_pair_symmetry(self):
+        estimator = TorusPairCorrelation(bins_u=4, bins_v=4)
+        data = _make_batched(jnp.array([[[0.0, 0.0], [0.1, 0.2]]]))
         state = estimator.init(data.unbatched_example(), jax.random.PRNGKey(0))
 
         _, state = estimator.evaluate_batch_walkers(
@@ -79,30 +76,30 @@ class TestTorusPairCorrelation:
         )
         result = estimator.finalize_state(state, n_steps=1)
 
-        # One unordered pair contributes 2*A/(N^2*shell_area) to its bin.
-        expected = 2 * estimator._area / (2**2 * estimator._shell_areas[0])
-        np.testing.assert_allclose(result["pair_correlation"][0], expected, rtol=1e-6)
-        np.testing.assert_allclose(result["pair_correlation"][1:], 0.0)
+        # Each directed pair contributes bins_u*bins_v/N^2 = 4.
+        expected = np.zeros((4, 4))
+        expected[1, 1] = 4.0  # -(0.1, 0.2)
+        expected[2, 2] = 4.0  # +(0.1, 0.2)
+        np.testing.assert_allclose(result["pair_correlation"], expected)
 
-    def test_finalize_state_averages_steps_and_returns_radii(self):
-        estimator = TorusPairCorrelation(bins=2, flux=2, tau=1j)
+    def test_finalize_state_averages_steps_and_returns_axes(self):
+        estimator = TorusPairCorrelation(bins_u=2, bins_v=3)
         data = HallData(electrons=jnp.zeros((2, 2)))
         state = estimator.init(data, jax.random.PRNGKey(0))
-        state["histogram"] = jnp.array([[2.0, 4.0]])
+        accumulated = jnp.array([[2.0, 4.0, 6.0], [8.0, 10.0, 12.0]])
+        state["histogram"] = state["histogram"].at[0].set(accumulated)
 
         result = estimator.finalize_state(state, n_steps=2)
 
-        np.testing.assert_allclose(result["pair_correlation"], [1.0, 2.0])
-        np.testing.assert_allclose(
-            result["pair_correlation:r"],
-            (estimator._bin_edges[:-1] + estimator._bin_edges[1:]) / 2,
-        )
+        np.testing.assert_allclose(result["pair_correlation"], accumulated / 2)
+        np.testing.assert_allclose(result["pair_correlation:u"], [-0.25, 0.25])
+        np.testing.assert_allclose(result["pair_correlation:v"], [-1 / 3, 0.0, 1 / 3])
         assert result["pair_correlation:n_steps"] == 2
 
     def test_custom_data_field(self):
-        estimator = TorusPairCorrelation(bins=4, flux=2, tau=1j, data_field="positions")
+        estimator = TorusPairCorrelation(bins_u=4, bins_v=4, data_field="positions")
         batched = BatchedData(
-            data=_PositionData(positions=jnp.array([[[0.0, 0.0], [0.1, 0.0]]])),
+            data=_PositionData(positions=jnp.array([[[0.0, 0.0], [0.1, 0.3]]])),
             fields_with_batch=["positions"],
         )
         state = estimator.init(batched.unbatched_example(), jax.random.PRNGKey(0))
@@ -116,10 +113,9 @@ class TestTorusPairCorrelation:
     @pytest.mark.parametrize(
         ("kwargs", "match"),
         [
-            ({"bins": 0}, "bins"),
-            ({"flux": 0}, "flux"),
-            ({"tau": 0j}, "tau"),
-            ({"tau": 1 - 1j}, "tau"),
+            ({"bins_u": 0}, "bins_u"),
+            ({"bins_v": 0}, "bins_v"),
+            ({"bins_u": True}, "bins_u"),
         ],
     )
     def test_rejects_invalid_config(self, kwargs, match):

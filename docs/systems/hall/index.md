@@ -144,7 +144,7 @@ support `laughlin` or `free`.
 The hall app includes estimators for observables beyond energy. They are disabled by default and can be enabled via config flags:
 
 - Density — {class}`~jaqmc.estimator.density.SphericalDensity` records polar angle $\theta$ on the sphere; {class}`~jaqmc.estimator.density.TorusDensity` records a 2-D fractional-coordinate $(u,v)$ histogram on the torus.
-- Pair correlation — {class}`~jaqmc.app.hall.estimator.SpherePairCorrelation` records $g(\theta)$ from geodesic pair angles on the sphere; {class}`~jaqmc.app.hall.estimator.TorusPairCorrelation` records radial $g(r)$ from minimum-image distances on the torus.
+- Pair correlation — {class}`~jaqmc.app.hall.estimator.SpherePairCorrelation` records $g(\theta)$ from geodesic pair angles on the sphere; {class}`~jaqmc.app.hall.estimator.TorusPairCorrelation` records $g(\Delta u,\Delta v)$ on the centered fractional torus unit cell $[-1/2,1/2)^2$.
 - One-body reduced density matrix — One-body reduced density matrix in the monopole harmonic basis. The trace gives the number of electrons on the lowest Landau level, $N_\text{LLL}$.
 
 Enable them via CLI or YAML:
@@ -172,7 +172,8 @@ estimators:
     bins_u: 100
     bins_v: 100
   pair_correlation:
-    bins: 200
+    bins_u: 100
+    bins_v: 100
 ```
 
 ## Workflow Notes

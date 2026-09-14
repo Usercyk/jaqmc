@@ -133,13 +133,34 @@ On the sphere, this computes $g(\theta)$ from geodesic pair angles:
    :prefix: estimators.pair_correlation
 ```
 
-On the torus, it computes the radial $g(r)$ using minimum-image distances in
-magnetic-length units. The normalized result and its bin centers are written
-to the digest as `pair_correlation` and `pair_correlation:r`:
+On the torus, it computes the two-dimensional
+$g(\Delta u,\Delta v)$ from directed fractional-coordinate displacements,
+periodically wrapped into the centered fundamental domain
+$[-1/2,1/2)\times[-1/2,1/2)$. This places the origin at the center of the
+heatmap, so points separated across a periodic boundary remain visually close
+and all four directions around the origin are shown. The normalized matrix and
+its bin-center axes are written to the digest as `pair_correlation`,
+`pair_correlation:u`, and `pair_correlation:v`:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.torus.pair_correlation.TorusPairCorrelation
    :prefix: estimators.pair_correlation
+```
+
+The matrix can be plotted directly as a heatmap:
+
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+
+digest = np.load("evaluation_digest.npz")
+g_uv = digest["pair_correlation"]
+u = digest["pair_correlation:u"]
+v = digest["pair_correlation:v"]
+
+plt.pcolormesh(u, v, g_uv.T, shading="auto")
+plt.xlabel(r"$\Delta u$")
+plt.ylabel(r"$\Delta v$")
 ```
 
 ### One-body RDM (`estimators.one_rdm.*`)

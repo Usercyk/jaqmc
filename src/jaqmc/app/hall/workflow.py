@@ -218,10 +218,7 @@ def make_torus_estimators(
     if cfg.get("estimators.enabled.pair_correlation", False):
         estimators["pair_correlation"] = cfg.get(
             "estimators.pair_correlation",
-            TorusPairCorrelation(
-                flux=system_config.flux,
-                tau=system_config.tau,
-            ),
+            TorusPairCorrelation(),
         )
 
     return estimators

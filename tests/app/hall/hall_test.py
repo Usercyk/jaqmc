@@ -100,7 +100,7 @@ class TestHallTorusConfig:
             {
                 "estimators": {
                     "enabled": {"energy": False, "pair_correlation": True},
-                    "pair_correlation": {"bins": 24},
+                    "pair_correlation": {"bins_u": 24, "bins_v": 32},
                 }
             }
         )
@@ -110,9 +110,8 @@ class TestHallTorusConfig:
         assert set(estimators) == {"pair_correlation"}
         pair_correlation = estimators["pair_correlation"]
         assert isinstance(pair_correlation, TorusPairCorrelation)
-        assert pair_correlation.bins == 24
-        assert pair_correlation.flux == system.flux
-        assert pair_correlation.tau == system.tau
+        assert pair_correlation.bins_u == 24
+        assert pair_correlation.bins_v == 32
 
 
 def _sample(key, batch, nelec):
