@@ -18,7 +18,7 @@ from jaqmc.app.hall.config import (
     InteractionType,
 )
 from jaqmc.app.hall.data import HallData, data_init
-from jaqmc.app.hall.estimator import TorusPairCorrelation
+from jaqmc.app.hall.estimator import TorusOneRDM, TorusPairCorrelation
 from jaqmc.app.hall.estimator.sphere.penalized_loss import SpherePenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
 from jaqmc.app.hall.wavefunction.sphere.free import SphereFree
@@ -112,6 +112,31 @@ class TestHallTorusConfig:
         assert isinstance(pair_correlation, TorusPairCorrelation)
         assert pair_correlation.bins_u == 24
         assert pair_correlation.bins_v == 32
+
+    def test_one_rdm_estimator(self):
+        class Wavefunction:
+            @staticmethod
+            def logpsi(_params, _data):
+                return jnp.asarray(0.0j)
+
+        system = HallTorusConfig(flux=4, tau=0.5 + 1j)
+        manager = ConfigManager(
+            {
+                "estimators": {
+                    "enabled": {"energy": False, "one_rdm": True},
+                    "one_rdm": {"theta_terms": 16},
+                }
+            }
+        )
+
+        estimators = make_torus_estimators(manager, Wavefunction(), system)
+
+        assert set(estimators) == {"one_rdm"}
+        one_rdm = estimators["one_rdm"]
+        assert isinstance(one_rdm, TorusOneRDM)
+        assert one_rdm.flux == system.flux
+        assert one_rdm.tau == system.tau
+        assert one_rdm.theta_terms == 16
 
 
 def _sample(key, batch, nelec):

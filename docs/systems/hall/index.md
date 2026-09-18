@@ -145,12 +145,12 @@ The hall app includes estimators for observables beyond energy. They are disable
 
 - Density — {class}`~jaqmc.estimator.density.SphericalDensity` records polar angle $\theta$ on the sphere; {class}`~jaqmc.estimator.density.TorusDensity` records a 2-D fractional-coordinate $(u,v)$ histogram on the torus.
 - Pair correlation — {class}`~jaqmc.app.hall.estimator.SpherePairCorrelation` records $g(\theta)$ from geodesic pair angles on the sphere; {class}`~jaqmc.app.hall.estimator.TorusPairCorrelation` records $g(\Delta u,\Delta v)$ on the centered fractional torus unit cell $[-1/2,1/2)^2$.
-- One-body reduced density matrix — One-body reduced density matrix in the monopole harmonic basis. The trace gives the number of electrons on the lowest Landau level, $N_\text{LLL}$.
+- One-body reduced density matrix — {class}`~jaqmc.app.hall.estimator.SphereOneRDM` uses the monopole-harmonic basis, while {class}`~jaqmc.app.hall.estimator.TorusOneRDM` uses the torus LLL guiding-centre basis. The trace gives the number of electrons in the lowest Landau level, $N_\text{LLL}$.
 
 Enable them via CLI or YAML:
 
 ```bash
-jaqmc hall evaluate estimators.enabled.density=true estimators.enabled.pair_correlation=true
+jaqmc hall evaluate estimators.enabled.density=true estimators.enabled.pair_correlation=true estimators.enabled.one_rdm=true
 ```
 
 ```yaml
@@ -168,12 +168,16 @@ For a torus system, configure the two fractional-coordinate axes instead:
 estimators:
   enabled:
     density: true
+    pair_correlation: true
+    one_rdm: true
   density:
     bins_u: 100
     bins_v: 100
   pair_correlation:
     bins_u: 100
     bins_v: 100
+  one_rdm:
+    theta_terms: 48
 ```
 
 ## Workflow Notes

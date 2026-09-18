@@ -165,9 +165,18 @@ plt.ylabel(r"$\Delta v$")
 
 ### One-body RDM (`estimators.one_rdm.*`)
 
-Computes the one-body reduced density matrix in the monopole harmonic basis.
+On the sphere, this uses the lowest-Landau-level monopole-harmonic basis:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.sphere.one_rdm.SphereOneRDM
+   :prefix: estimators.one_rdm
+```
+
+On the torus, it uses the `flux` normalized lowest-Landau-level
+guiding-centre orbitals defined by the same theta-function basis as the MHPO
+wavefunction:
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.hall.estimator.torus.one_rdm.TorusOneRDM
    :prefix: estimators.one_rdm
 ```

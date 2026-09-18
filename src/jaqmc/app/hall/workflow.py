@@ -30,6 +30,7 @@ from .estimator import (
     SphereOneRDM,
     SpherePairCorrelation,
     SpherePenalizedLoss,
+    TorusOneRDM,
     TorusPairCorrelation,
 )
 from .hamiltonian import SpherePotential, TorusPotential
@@ -221,6 +222,15 @@ def make_torus_estimators(
             TorusPairCorrelation(),
         )
 
+    if cfg.get("estimators.enabled.one_rdm", False):
+        estimators["one_rdm"] = cfg.get(
+            "estimators.one_rdm",
+            TorusOneRDM(
+                flux=system_config.flux,
+                tau=system_config.tau,
+                f_log_psi=wf.logpsi,
+            ),
+        )
     return estimators
 
 
