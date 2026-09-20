@@ -145,7 +145,7 @@ The hall app includes estimators for observables beyond energy. They are disable
 
 - Density — {class}`~jaqmc.estimator.density.SphericalDensity` records polar angle $\theta$ on the sphere; {class}`~jaqmc.estimator.density.TorusDensity` records a 2-D fractional-coordinate $(u,v)$ histogram on the torus.
 - Pair correlation — {class}`~jaqmc.app.hall.estimator.SpherePairCorrelation` records $g(\theta)$ from geodesic pair angles on the sphere; {class}`~jaqmc.app.hall.estimator.TorusPairCorrelation` records $g(\Delta u,\Delta v)$ on the centered fractional torus unit cell $[-1/2,1/2)^2$.
-- One-body reduced density matrix — {class}`~jaqmc.app.hall.estimator.SphereOneRDM` uses the monopole-harmonic basis, while {class}`~jaqmc.app.hall.estimator.TorusOneRDM` uses the torus LLL guiding-centre basis. The trace gives the number of electrons in the lowest Landau level, $N_\text{LLL}$.
+- One-body reduced density matrix — {class}`~jaqmc.app.hall.estimator.SphereOneRDM` uses the LLL monopole-harmonic basis, while {class}`~jaqmc.app.hall.estimator.TorusOneRDM` uses the `n=0,1,2` torus Landau-level basis and reports each diagonal level block separately.
 
 Enable them via CLI or YAML:
 
@@ -158,11 +158,13 @@ estimators:
   enabled:
     density: true
     pair_correlation: true
+    one_rdm: true
   density:
     bins_theta: 100  # override default 50
 ```
 
-For a torus system, configure the two fractional-coordinate axes instead:
+For a torus system, configure the fractional-coordinate histograms and optional
+1-RDM theta-series truncation instead:
 
 ```yaml
 estimators:

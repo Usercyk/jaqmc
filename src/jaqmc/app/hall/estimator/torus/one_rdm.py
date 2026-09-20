@@ -37,11 +37,15 @@ __all__ = ["TorusOneRDM"]
 
 @configurable_dataclass
 class TorusOneRDM(PerWalkerEstimator):
-    r"""One-body RDM in the torus lowest-Landau-level orbital basis.
+    r"""One-body RDM in the first three torus Landau levels.
 
-    The result is a complex (3*flux, 3*flux) matrix. Its diagonal contains the
-    guiding-centre occupation numbers and its trace gives the number of
-    electrons projected into the lowest Landau level.
+    The basis is ordered by Landau-level index and then guiding-centre index:
+    :math:`(0,0),\ldots,(0,N_\phi-1),(1,0),\ldots,(2,N_\phi-1)`.
+    The result is a complex :math:`3N_\phi\times3N_\phi` matrix. Its
+    diagonal contains orbital occupations, while the traces of the
+    ``one_rdm:n0``, ``one_rdm:n1``, and ``one_rdm:n2`` blocks give
+    the occupation of each Landau level. The total trace gives the particle
+    number represented in this three-level basis.
 
     Args:
         flux: Positive number of magnetic flux quanta :math:`N_\phi`.
@@ -53,7 +57,7 @@ class TorusOneRDM(PerWalkerEstimator):
     """
 
     flux: int = 2
-    tau: complex = 1j
+    tau: complex = runtime_dep(default=1j)
     theta_terms: int = 48
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
@@ -91,10 +95,10 @@ class TorusOneRDM(PerWalkerEstimator):
         return None
 
     def _orbitals(self, electrons: jnp.ndarray) -> jnp.ndarray:
-        """Evaluate the normalized LLL guiding-centre orbitals.
+        """Evaluate the normalized n=0,1,2 magnetic orbitals.
 
         Returns:
-            Complex orbital values with a final axis of length `flux`.
+            Complex orbital values with a final axis of length ``3 * flux``.
         """
         z = electrons[..., 0] * self._l1 + electrons[..., 1] * self._l2
         return torus_envelope(z, self.flux, self.tau, self.theta_terms)
@@ -109,6 +113,11 @@ class TorusOneRDM(PerWalkerEstimator):
     ) -> tuple[dict[str, Any], Any]:
         del prev_walker_stats
         electrons = data[self.data_field]
+        if electrons.ndim != 2 or electrons.shape[-1] != 2:
+            raise ValueError(
+                "Torus electron coordinates must have shape (n_electrons, 2), "
+                f"with the last axis ordered as (u, v). Got {electrons.shape}."
+            )
         nelec = electrons.shape[0]
 
         r_prime = jax.random.uniform(rngs, (2,), minval=0.0, maxval=1.0)

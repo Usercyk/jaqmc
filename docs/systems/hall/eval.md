@@ -172,11 +172,17 @@ On the sphere, this uses the lowest-Landau-level monopole-harmonic basis:
    :prefix: estimators.one_rdm
 ```
 
-On the torus, it uses the `flux` normalized lowest-Landau-level
-guiding-centre orbitals defined by the same theta-function basis as the MHPO
-wavefunction:
+On the torus, it uses the normalized `n=0,1,2` Landau-level orbitals
+defined by the same theta-function basis as the MHPO wavefunction. The basis is
+ordered first by Landau-level index and then by guiding-centre index, so the
+matrix shape is `(3 * flux, 3 * flux)`:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.torus.one_rdm.TorusOneRDM
    :prefix: estimators.one_rdm
 ```
+
+For both geometries, the digest contains `one_rdm`,
+`one_rdm:diagonal`, and `one_rdm:trace`. The torus digest additionally
+contains the diagonal Landau-level blocks `one_rdm:n0`, `one_rdm:n1`, and
+`one_rdm:n2`; the trace of each block is the occupation of that level.

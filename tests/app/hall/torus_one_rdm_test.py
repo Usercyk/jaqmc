@@ -50,11 +50,19 @@ class TestTorusOneRDM:
         )
         stats = evaluate(jax.random.PRNGKey(1))
 
-        assert stats["one_rdm"].shape == (_FLUX, _FLUX)
+        assert stats["one_rdm"].shape == (3 * _FLUX, 3 * _FLUX)
         assert jnp.iscomplexobj(stats["one_rdm"])
         assert jnp.all(jnp.isfinite(stats["one_rdm"]))
 
-    def test_filled_lll_converges_to_identity(self):
+    def test_rejects_invalid_electron_shape(self):
+        estimator = _make_estimator()
+        data = HallData(electrons=jnp.zeros(()))
+        estimator.init(data, jax.random.PRNGKey(0))
+
+        with pytest.raises(ValueError, match="shape"):
+            estimator.evaluate_single_walker({}, data, {}, None, jax.random.PRNGKey(1))
+
+    def test_filled_lll_occupies_only_n0_block(self):
         estimator = _make_estimator()
         data = HallData(electrons=_ELECTRONS)
         estimator.init(data, jax.random.PRNGKey(0))
@@ -69,18 +77,26 @@ class TestTorusOneRDM:
         )(keys)
         one_rdm = jnp.mean(samples, axis=0)
 
-        np.testing.assert_allclose(one_rdm, jnp.eye(_FLUX), atol=0.12)
-        np.testing.assert_allclose(jnp.trace(one_rdm), _FLUX, atol=0.12)
+        n0 = one_rdm[:_FLUX, :_FLUX]
+        n1 = one_rdm[_FLUX : 2 * _FLUX, _FLUX : 2 * _FLUX]
+        n2 = one_rdm[2 * _FLUX :, 2 * _FLUX :]
+        np.testing.assert_allclose(n0, jnp.eye(_FLUX), atol=0.12)
+        np.testing.assert_allclose(jnp.trace(n1), 0.0, atol=0.15)
+        np.testing.assert_allclose(jnp.trace(n2), 0.0, atol=0.15)
+        np.testing.assert_allclose(jnp.trace(one_rdm), _FLUX, atol=0.15)
 
     def test_finalize_stats_returns_matrix_diagonal_and_trace(self):
         estimator = _make_estimator()
-        matrices = jnp.stack([jnp.eye(_FLUX), 3 * jnp.eye(_FLUX)])
+        norbs = 3 * _FLUX
+        matrices = jnp.stack([jnp.eye(norbs), 3 * jnp.eye(norbs)])
 
         result = estimator.finalize_stats({"one_rdm": matrices}, None)
 
-        np.testing.assert_allclose(result["one_rdm"], 2 * jnp.eye(_FLUX))
-        np.testing.assert_allclose(result["one_rdm:diagonal"], [2.0, 2.0])
-        np.testing.assert_allclose(result["one_rdm:trace"], 4.0)
+        np.testing.assert_allclose(result["one_rdm"], 2 * jnp.eye(norbs))
+        np.testing.assert_allclose(result["one_rdm:diagonal"], jnp.full((norbs,), 2.0))
+        np.testing.assert_allclose(result["one_rdm:trace"], 2.0 * norbs)
+        for level in range(3):
+            np.testing.assert_allclose(result[f"one_rdm:n{level}"], 2 * jnp.eye(_FLUX))
 
     @pytest.mark.parametrize(
         ("kwargs", "match"),
