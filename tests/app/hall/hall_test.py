@@ -26,6 +26,7 @@ from jaqmc.app.hall.wavefunction.sphere.jastrow import SphereJastrow
 from jaqmc.app.hall.wavefunction.sphere.laughlin import SphereLaughlin
 from jaqmc.app.hall.wavefunction.sphere.mhpo import SphereMHPO
 from jaqmc.app.hall.workflow import make_torus_estimators
+from jaqmc.estimator import FubiniStudyDistance
 from jaqmc.estimator.density import TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
@@ -137,6 +138,32 @@ class TestHallTorusConfig:
         assert one_rdm.flux == system.flux
         assert one_rdm.tau == system.tau
         assert one_rdm.theta_terms == 16
+
+    def test_fubini_estimator(self):
+        class Wavefunction:
+            @staticmethod
+            def logpsi(_params, _data):
+                return jnp.asarray(0.0j)
+
+        manager = ConfigManager(
+            {
+                "estimators": {
+                    "enabled": {"energy": False, "fubini": True},
+                    "fubini": {
+                        "checkpoint_path": "/tmp/hall-run",
+                        "reference_step": 1200,
+                    },
+                }
+            }
+        )
+
+        estimators = make_torus_estimators(manager, Wavefunction(), HallTorusConfig())
+
+        assert set(estimators) == {"fubini"}
+        fubini = estimators["fubini"]
+        assert isinstance(fubini, FubiniStudyDistance)
+        assert fubini.checkpoint_path == "/tmp/hall-run"
+        assert fubini.reference_step == 1200
 
 
 def _sample(key, batch, nelec):

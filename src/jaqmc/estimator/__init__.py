@@ -9,12 +9,15 @@ from .base import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
+from .fubini import FubiniStudyDistance, fubini_metrics_from_log_ratios
 
 __all__ = [
     "EstimateFn",
     "Estimator",
     "EstimatorLike",
     "EstimatorPipeline",
+    "FubiniStudyDistance",
     "FunctionEstimator",
     "PerWalkerEstimator",
+    "fubini_metrics_from_log_ratios",
 ]

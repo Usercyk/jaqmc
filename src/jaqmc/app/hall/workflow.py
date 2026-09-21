@@ -9,7 +9,7 @@ from typing import Any
 
 from jax import numpy as jnp
 
-from jaqmc.estimator import EstimatorLike
+from jaqmc.estimator import EstimatorLike, FubiniStudyDistance
 from jaqmc.estimator.density import SphericalDensity, TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic, TorusKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
@@ -232,6 +232,12 @@ def make_torus_estimators(
             ),
         )
 
+    if not always_enable_energy and cfg.get("estimators.enabled.fubini", False):
+        estimators["fubini"] = cfg.get(
+            "estimators.fubini",
+            FubiniStudyDistance(f_log_psi=wf.logpsi),
+        )
+
     return estimators
 
 
@@ -292,6 +298,12 @@ def make_sphere_estimators(
         estimators["one_rdm"] = cfg.get(
             "estimators.one_rdm",
             SphereOneRDM(flux=system_config.flux, f_log_psi=wf.logpsi),
+        )
+
+    if not always_enable_energy and cfg.get("estimators.enabled.fubini", False):
+        estimators["fubini"] = cfg.get(
+            "estimators.fubini",
+            FubiniStudyDistance(f_log_psi=wf.logpsi),
         )
 
     return estimators

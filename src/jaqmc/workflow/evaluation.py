@@ -13,6 +13,7 @@ import jax
 from jax.experimental import multihost_utils
 from upath import UPath
 
+from jaqmc.estimator.fubini import FubiniStudyDistance
 from jaqmc.utils.config import configurable_dataclass
 
 from .base import Workflow, WorkflowConfig, init_batched_data
@@ -139,6 +140,13 @@ class EvaluationWorkflow(Workflow):
                 "No training checkpoint loaded; starting evaluation with "
                 "fresh walkers and sampler state."
             )
+
+        for estimator in self.evaluation_stage.estimators.estimators.values():
+            if isinstance(estimator, FubiniStudyDistance):
+                estimator.load_checkpoints(
+                    state.params,
+                    default_path=source_path_str,
+                )
 
         rngs, sub_rngs = jax.random.split(rngs)
         self.evaluation_stage.run(state, context, sub_rngs)

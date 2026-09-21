@@ -86,6 +86,7 @@ estimators enabled through boolean flags.
 
 - `TotalEnergy` is added automatically by the workflow and is not configurable
   via a config key.
+- `estimators.enabled.fubini` defaults to `false`.
 - When `system.lz_penalty` or `system.l2_penalty` are nonzero, a
   `SpherePenalizedLoss` estimator is added automatically.
 - `estimators.enabled.energy` defaults to `true`.
@@ -186,3 +187,64 @@ For both geometries, the digest contains `one_rdm`,
 `one_rdm:diagonal`, and `one_rdm:trace`. The torus digest additionally
 contains the diagonal Landau-level blocks `one_rdm:n0`, `one_rdm:n1`, and
 `one_rdm:n2`; the trace of each block is the occupation of that level.
+
+### Fubini--Study distance (`estimators.fubini.*`)
+
+This estimator compares every training checkpoint in a directory with one
+reference checkpoint. By default the checkpoint with the largest saved step is
+the reference; set `reference_step` to select another one. The directory
+defaults to `workflow.source_path`, or it can be set explicitly with
+`checkpoint_path`.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.fubini.FubiniStudyDistance
+   :prefix: estimators.fubini
+```
+
+For checkpoints $\psi_i$, a reference $\psi_r$, and samples from the network
+$\psi_s$ selected by `workflow.source_path`, the estimator uses
+
+$$
+\Delta_i(x)=\log\psi_i(x)-\log\psi_s(x)
+$$
+
+and computes
+
+$$
+\cos\gamma_i =
+\frac{\left|\mathbb E_s\left[
+e^{\Delta_i+\Delta_r^*}\right]\right|}
+{\sqrt{\mathbb E_s[e^{2\operatorname{Re}\Delta_i}]
+       \mathbb E_s[e^{2\operatorname{Re}\Delta_r}]}}.
+$$
+
+Thus the sampling checkpoint does not have to be the reference, although using
+the last checkpoint for both is normally the most efficient choice. The
+distance is $\gamma_i=\arccos(\cos\gamma_i)$ in radians.
+
+For example, to compare all checkpoints in a Hall training directory with its
+last checkpoint:
+
+```console
+jaqmc hall evaluate --yml runs/hall/train_config.yaml \
+  workflow.source_path=runs/hall \
+  workflow.save_path=runs/hall/fubini-eval \
+  workflow.config.ignore_extra=true \
+  estimators.enabled.energy=false \
+  estimators.enabled.fubini=true
+```
+
+To use a particular saved step instead, add for example
+`estimators.fubini.reference_step=50000`. The digest
+`fubini-eval/evaluation_digest.npz` contains aligned arrays:
+
+- `fubini:step`: saved checkpoint steps;
+- `fubini:distance`: Fubini--Study angles in radians;
+- `fubini:cosine` and `fubini:fidelity`;
+- `fubini:modulus_cosine` and `fubini:phase_factor`, whose product is
+  `fubini:cosine` up to Monte Carlo error;
+- `fubini:reference_step`: the selected reference step.
+
+All checkpoint parameter sets are loaded together and evaluated for each
+walker. Consequently, device memory and evaluation cost grow approximately
+linearly with the number of saved checkpoints.
