@@ -162,7 +162,13 @@ $(u,v)\in[0,1)^2$:
 
 ### Pair correlation (`estimators.pair_correlation.*`)
 
-On the sphere, this computes $g(\theta)$ from geodesic pair angles:
+On the sphere, this accumulates a histogram of geodesic pair angles
+$\theta_{ij}$ weighted by $1/\sin\theta_{ij}$. The digest holds the raw
+weighted counts; multiply by
+$4b / (\pi N^2 n_{\text{walkers}} n_{\text{steps}})$ — with $b$ the
+bin count, $N$ the electron number, $n_{\text{walkers}}$ the global walker
+count (`workflow.batch_size`), and $n_{\text{steps}}$ the step count from
+the digest key `pair_correlation:n_steps` — to obtain $g(\theta)$:
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.sphere.pair_correlation.SpherePairCorrelation
