@@ -10,6 +10,7 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike, FubiniStudyDistance
+from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
 from jaqmc.estimator.density import SphericalDensity, TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic, TorusKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
@@ -248,8 +249,19 @@ def make_sphere_estimators(
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
     estimators: dict[str, EstimatorLike] = {}
-    if always_enable_energy or cfg.get("estimators.enabled.energy", True):
-        Q = system_config.flux / 2
+    energy_enabled = always_enable_energy or cfg.get("estimators.enabled.energy", True)
+    has_penalties = bool(system_config.lz_penalty or system_config.l2_penalty)
+    angular_momentum_enabled = cfg.get("estimators.enabled.angular_momentum", True)
+    for enabled, key in (
+        (energy_enabled, "energy"),
+        (angular_momentum_enabled, "angular_momentum"),
+    ):
+        if has_penalties and not enabled:
+            raise ValueError(
+                f"Angular-momentum penalties require estimators.enabled.{key}=true."
+            )
+    Q = system_config.flux / 2
+    if energy_enabled:
         radius = (
             system_config.radius
             if system_config.radius is not None
@@ -261,7 +273,7 @@ def make_sphere_estimators(
             SphericalKinetic(
                 monopole_strength=Q,
                 radius=radius,
-                f_log_psi=wf.logpsi,
+                f_log_psi_from_spinor=wf.logpsi_from_spinor,
             ),
         )
         estimators["potential"] = cfg.get(
@@ -275,12 +287,20 @@ def make_sphere_estimators(
         )
         estimators["total"] = TotalEnergy()
 
-        if system_config.lz_penalty or system_config.l2_penalty:
-            estimators["penalty"] = SpherePenalizedLoss(
-                lz_center=system_config.lz_center,
-                lz_penalty=system_config.lz_penalty,
-                l2_penalty=system_config.l2_penalty,
-            )
+    if angular_momentum_enabled:
+        estimators["angular_momentum"] = cfg.get(
+            "estimators.angular_momentum",
+            SphericalAngularMomentum(
+                f_log_psi_from_spinor=wf.logpsi_from_spinor,
+            ),
+        )
+
+    if has_penalties:
+        estimators["penalty"] = SpherePenalizedLoss(
+            lz_center=system_config.lz_center,
+            lz_penalty=system_config.lz_penalty,
+            l2_penalty=system_config.l2_penalty,
+        )
 
     if cfg.get("estimators.enabled.density", False):
         estimators["density"] = cfg.get(
