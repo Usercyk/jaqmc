@@ -3,6 +3,8 @@
 
 """Tests for torus magnetic orbitals and the MHPO wavefunction."""
 
+from typing import Any, cast
+
 import jax
 import numpy as np
 import pytest
@@ -97,6 +99,10 @@ def test_torus_mhpo_is_antisymmetric():
     electrons = jnp.array([[0.17, 0.23], [0.61, 0.74]])
     data = HallData(electrons=electrons)
     params = wavefunction.init_params(data, jax.random.PRNGKey(0))
+
+    # Eight torus features plus the spin encoding added by PsiformerBackbone.
+    input_kernel = cast(Any, params)["params"]["backbone_layer"]["Dense_0"]["kernel"]
+    assert input_kernel.shape[0] == 9
 
     logpsi = wavefunction.evaluate(params, data)["logpsi"]
     swapped_data = HallData(electrons=electrons[::-1])

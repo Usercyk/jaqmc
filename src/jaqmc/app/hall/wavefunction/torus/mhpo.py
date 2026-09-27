@@ -24,6 +24,8 @@ from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
+from .features import torus_features
+
 __all__ = ["TorusMHPO"]
 
 
@@ -204,17 +206,7 @@ class TorusMHPO(Wavefunction[HallData, ComplexWFOutput]):
         u, v = electrons[..., 0], electrons[..., 1]
         l1, l2, _ = get_torus_lattice(self.flux, self.tau)
 
-        # Embed each circle with sine/cosine pairs so the learned coefficients
-        # are exactly periodic under either primitive-lattice translation.
-        h_one = jnp.stack(
-            [
-                jnp.cos(2.0 * jnp.pi * u),
-                jnp.sin(2.0 * jnp.pi * u),
-                jnp.cos(2.0 * jnp.pi * v),
-                jnp.sin(2.0 * jnp.pi * v),
-            ],
-            axis=-1,
-        )
+        h_one = torus_features(electrons)
         h_one = self.backbone_layer(h_one)
 
         z = u * l1 + v * l2
