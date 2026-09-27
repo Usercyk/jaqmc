@@ -22,6 +22,7 @@ from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
+from .features import torus_features
 from .mhpo import _lowest_landau_level_kernel_init
 
 __all__ = ["TorusSigmaMHPO"]
@@ -165,16 +166,16 @@ def _sigma_zeros_and_momenta(
     guiding_centres = jnp.arange(flux)
     zero_indices = jnp.arange(flux)
     zero_x = x_len / flux * (zero_indices - (flux - 1) / 2)
-    zero_y = y_len / flux * (guiding_centres - flux / 2)
+    zero_y = -y_len / flux * guiding_centres
     zeros = zero_x[None, :] + 1j * zero_y[:, None]
 
     # A product of Weierstrass sigma functions contains the holomorphic
     # quadratic exp(N * eta1 * z**2 / Lx). Correct it to the symmetric-gauge
-    # factor exp(z**2 / 4). The corresponding linear term makes the modulus
-    # periodic along the imaginary period. The legacy expressions coincide
-    # with these corrections only for a square torus.
+    # factor exp(z**2 / 4). The linear term selects the same characteristics
+    # [1/2 + j/N, N/2] as the regular torus envelope, without translating the
+    # gauge origin to the centre of the cell.
     quadratic = 0.25 - flux * eta1 / x_len
-    momenta = 1j * (flux - 2 * guiding_centres) * (eta1 * y_len - jnp.pi) / x_len
+    momenta = 2j * guiding_centres * (eta1 * y_len - jnp.pi) / x_len
     return zeros, momenta, quadratic
 
 
@@ -215,11 +216,11 @@ def _sigma_lll_log_normalizers(
         - jnp.abs(reference_z) ** 2 / 4.0
     )
 
-    # The zeros select the characteristic a=-n/N and b=N/2.  Combine the
+    # The zeros select the characteristic a=1/2+n/N and b=N/2. Combine the
     # symmetric-gauge Gaussian with each theta-series term, as in the regular
     # torus envelope, so the reference value remains numerically bounded.
     guiding_centres = jnp.arange(flux)
-    characteristics = -guiding_centres / flux
+    characteristics = 0.5 + guiding_centres / flux
     rho = reference_z.imag / y_len
     series_centres = jnp.rint(-rho - characteristics)
     offsets = jnp.arange(-theta_terms, theta_terms + 1)
@@ -371,10 +372,9 @@ class _TorusSigmaOrbitals(nn.Module):
 class TorusSigmaMHPO(Wavefunction[HallData, ComplexWFOutput]):
     r"""Sigma-function MHPO ansatz restricted to rectangular tori.
 
-    ``HallData.electrons`` stores fractional coordinates ``(u, v)``.  They are
-    mapped to the centered Cartesian cell before the sigma orbitals are
-    evaluated. Only purely imaginary ``tau`` values are accepted. The square
-    lattice ``tau=1j`` is the only validated geometry for this deprecated ansatz.
+    ``HallData.electrons`` stores fractional coordinates ``(u, v)``. Only
+    purely imaginary ``tau`` values are accepted. The square lattice
+    ``tau=1j`` is the only validated geometry for this deprecated ansatz.
     """
 
     nspins: tuple[int, int] = runtime_dep()
@@ -437,18 +437,12 @@ class TorusSigmaMHPO(Wavefunction[HallData, ComplexWFOutput]):
             eisen_terms=self.eisen_terms,
         )
 
-        h_one = jnp.stack(
-            [
-                jnp.cos(2.0 * jnp.pi * u),
-                jnp.sin(2.0 * jnp.pi * u),
-                jnp.cos(2.0 * jnp.pi * v),
-                jnp.sin(2.0 * jnp.pi * v),
-            ],
-            axis=-1,
-        )
+        h_one = torus_features(electrons)
         h_one = self.backbone_layer(h_one)
 
-        z = (u - 0.5) * x_len + 1j * (v - 0.5) * y_len
+        # Keep the same symmetric-gauge origin used by the kinetic estimator.
+        # Centering the cell here would introduce a magnetic-translation gauge.
+        z = u * x_len + 1j * v * y_len
         orbitals = self.orbital_layer(h_one, z)
 
         signs, logdets = jnp.linalg.slogdet(orbitals)
