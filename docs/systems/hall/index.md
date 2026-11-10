@@ -27,6 +27,9 @@ The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 `system.radius`. For the contextual defaults used by training, see the
 [training configuration reference](#hall-train-system).
 
+For Cartesian disk geometry, training, observables, and wavefunction overlap,
+see <project:disk.md>.
+
 ## How It Works
 
 Each electron is sampled on the sphere as `(theta, phi)`. The default
@@ -226,6 +229,7 @@ whether angular-momentum penalties were used.
 :hidden:
 
 energy-corrections.md
+disk.md
 Training <train.md>
 Evaluation <eval.md>
 ```

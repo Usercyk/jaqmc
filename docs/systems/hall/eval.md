@@ -8,6 +8,9 @@ for `run.*`, `sampler.*`, and `writers.*` live at the config root. Defaults are
 resolved in this order: schema defaults, workflow preset, YAML config, then CLI
 overrides. For training config, see <project:train.md>.
 
+Disk observables and the dedicated overlap workflow are described in
+<project:disk.md>.
+
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
 shared by all commands. See <project:../../guide/runtime-configuration.md>.
 

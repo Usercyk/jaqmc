@@ -24,7 +24,7 @@ from jaqmc.utils.config import ConfigManager
 class TestHallConfig:
     def test_geometry_configs_share_common_fields(self):
         for config_type in (HallSphereConfig, HallTorusConfig, HallDiskConfig):
-            config = config_type()
+            config = config_type(nspins=(3, 0))
             assert isinstance(config, HallGeometryConfig)
             assert config.nspins == (3, 0)
             assert config.interaction_type is InteractionType.coulomb

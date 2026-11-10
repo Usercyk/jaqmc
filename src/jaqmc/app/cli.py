@@ -239,6 +239,14 @@ def hall_evaluate(cfg: ConfigManager, dry_run: bool):
     HallEvalWorkflow(cfg)(dry_run)
 
 
+@hall.add_command
+@make_cli(name="overlap", help="Evaluate overlap between disk wavefunctions.")
+def hall_overlap(cfg: ConfigManager, dry_run: bool):
+    from .hall.overlap import HallOverlapWorkflow
+
+    HallOverlapWorkflow(cfg)(dry_run)
+
+
 # --- moire ---
 
 

@@ -492,6 +492,47 @@ estimators:
 ]
 
 
+CASES.extend(
+    [
+        CliDryRunCase(
+            "hall_disk_train",
+            "hall",
+            "train",
+            (
+                "system.module=jaqmc.app.hall.config:HallDiskConfig",
+                "workflow.batch_size=4",
+                "train.run.iterations=1",
+            ),
+        ),
+        CliDryRunCase(
+            "hall_disk_evaluate_observables",
+            "hall",
+            "evaluate",
+            (
+                "system.module=jaqmc.app.hall.config:HallDiskConfig",
+                "wf.module=laughlin",
+                "workflow.batch_size=4",
+                "estimators.enabled.short_range=true",
+                "estimators.enabled.density=true",
+                "run.iterations=1",
+            ),
+        ),
+        CliDryRunCase(
+            "hall_disk_overlap",
+            "hall",
+            "overlap",
+            (
+                "system.nspins=[2,0]",
+                "system.flux=6",
+                "wf.module=laughlin",
+                "workflow.batch_size=4",
+                "run.iterations=1",
+            ),
+        ),
+    ]
+)
+
+
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.id)
 def test_cli_command_dry_run(
     case: CliDryRunCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

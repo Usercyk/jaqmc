@@ -24,7 +24,7 @@ if jax.__version_info__ < (0, 6):
 
 
 def register_first_order_parameter(
-    output: jax.Array, parameter: jax.Array
+    output: jax.Array, parameter: jax.Array, *additional_parameters: jax.Array
 ) -> jax.Array:
     """Exclude a parameter from KFAC preconditioning.
 
@@ -34,17 +34,19 @@ def register_first_order_parameter(
     Args:
         output: The output produced with ``parameter``.
         parameter: The parameter to update without KFAC preconditioning.
+        *additional_parameters: Other parameters in the same first-order block.
 
     Returns:
         The unchanged output with a first-order KFAC layer tag.
     """
+    parameters = (parameter, *additional_parameters)
     return kfac_jax.layers_and_loss_tags.layer_tag.bind(
         output,
-        parameter,
+        *parameters,
         meta=kfac_jax.LayerMetaData(
             variant=FIRST_ORDER_TAG,
             inputs_index=(),
             outputs_index=(0,),
-            params_index=(1,),
+            params_index=tuple(range(1, len(parameters) + 1)),
         ),
     )

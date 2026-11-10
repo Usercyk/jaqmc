@@ -4,6 +4,7 @@
 """Electron density histogram estimators for different coordinate systems."""
 
 from .cartesian import CartesianAxis, CartesianDensity
+from .disk import DiskDensity
 from .fractional import FractionalAxis, FractionalDensity
 from .spherical import SphericalDensity
 from .torus import TorusDensity
@@ -11,6 +12,7 @@ from .torus import TorusDensity
 __all__ = [
     "CartesianAxis",
     "CartesianDensity",
+    "DiskDensity",
     "FractionalAxis",
     "FractionalDensity",
     "SphericalDensity",

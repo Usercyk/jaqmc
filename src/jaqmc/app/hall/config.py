@@ -151,7 +151,29 @@ class HallTorusConfig(HallGeometryConfig):
 
 @configurable_dataclass
 class HallDiskConfig(HallGeometryConfig):
-    """HallConfiguration for a quantum Hall system on a disk.
+    r"""Configuration for a quantum Hall system on a disk.
 
-    Geometry-specific configuration fields can be added here.
+    Args:
+        flux: Magnetic flux :math:`Q` (positive integer).
+        nspins: ``(n_up, n_down)`` electron counts.
+        radius: Disk radius. Defaults to :math:`\sqrt{2Q}`.
+        d: Separation from the neutralizing background disk.
+        num_orbitals: Number of neural orbitals. Defaults to ``flux``.
+        interaction_type: Interaction potential form.
+        interaction_strength: Scaling factor for the potential energy.
+        lz_center: Target :math:`L_z` for the penalty method.
+        lz_penalty: Penalty strength for
+            :math:`(L_z - L_{z,0})^2`.
+        l2_penalty: Penalty strength for :math:`L_z^2` on the disk.
+        lz_var_penalty: Penalty strength for angular-momentum variance.
     """
+
+    flux: int = 18
+    nspins: tuple[int, int] = (6, 0)
+    radius: float | None = None
+    d: float | int = 0.1
+    num_orbitals: int | None = None
+    lz_center: float = 0.0
+    lz_penalty: float = 0.0
+    l2_penalty: float = 0.0
+    lz_var_penalty: float = 0.0

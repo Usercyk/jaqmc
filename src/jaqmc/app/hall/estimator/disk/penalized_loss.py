@@ -1,0 +1,73 @@
+# Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
+# SPDX-License-Identifier: Apache-2.0
+
+r"""Angular momentum penalty estimator for state selection.
+
+Adds :math:`\lambda_{L_z}(L_z - L_{z,0})^2 + \lambda_{L^2} L^2` to the
+total energy so the VMC optimizer drives the wavefunction toward a target
+angular momentum sector.
+"""
+
+from collections.abc import Mapping
+from typing import Any
+
+from jax import numpy as jnp
+
+from jaqmc.array_types import Params, PRNGKey
+from jaqmc.data import BatchedData
+from jaqmc.estimator.base import Estimator
+from jaqmc.utils import parallel_jax
+from jaqmc.utils.config import configurable_dataclass
+
+
+@configurable_dataclass
+class DiskPenalizedLoss(Estimator):
+    """Adds angular momentum penalties to total energy for state selection.
+
+    Reads ``total_energy``, ``observable:angular_momentum_z``, and
+    ``observable:angular_momentum_z_square`` from
+    ``prev_walker_stats`` and outputs a ``penalized_loss`` key.
+
+    Args:
+        lz_center: Target :math:`L_z` value.
+        lz_penalty: Penalty strength for :math:`(L_z - L_{z,0})^2`.
+        l2_penalty: Penalty strength for :math:`L^2`.
+        lz_var_penalty: Penalty strength for :math:`<L_z^2> - <L_z>^2`
+    """
+
+    lz_center: float = 0.0
+    lz_penalty: float = 0.0
+    l2_penalty: float = 0.0
+    lz_var_penalty: float = 0.0
+
+    def evaluate_batch_walkers(
+        self,
+        params: Params,
+        batched_data: BatchedData,
+        prev_walker_stats: Mapping[str, Any],
+        state: None,
+        rngs: PRNGKey,
+    ) -> tuple[dict[str, Any], None]:
+        del params, batched_data, rngs
+
+        loss = prev_walker_stats["total_energy"]
+
+        if self.lz_penalty:
+            lz = prev_walker_stats["observable:angular_momentum_z"]
+            lz_sq = prev_walker_stats["observable:angular_momentum_z_square"]
+            loss = loss + self.lz_penalty * (
+                lz_sq - 2 * self.lz_center * lz + self.lz_center**2
+            )
+
+        if self.l2_penalty:
+            l2 = prev_walker_stats["observable:angular_momentum_z_square"]
+            loss = loss + self.l2_penalty * l2
+
+        if self.lz_var_penalty is not None:
+            lz = prev_walker_stats["observable:angular_momentum_z"]
+            lz_sq = prev_walker_stats["observable:angular_momentum_z_square"]
+            mean_lz = parallel_jax.pmean(jnp.nanmean(lz, axis=0))
+            local_variance = lz_sq - 2 * mean_lz * lz + mean_lz**2
+            loss = loss + self.lz_var_penalty * local_variance
+
+        return {"penalized_loss": loss}, state
