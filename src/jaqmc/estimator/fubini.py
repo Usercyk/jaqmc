@@ -318,22 +318,28 @@ class FubiniStudyDistance(PerWalkerEstimator):
         reference_scale = batched_stats[f"{self.name}:reference_scale"]
         count = batched_stats[f"{self.name}:count"]
         valid = count > 0
-        overlap_log_scale = reference_scale + checkpoint_scale
-        checkpoint_norm_log_scale = 2 * checkpoint_scale
-        reference_norm_log_scale = 2 * reference_scale
-        all_log_scales = jnp.stack(
-            [overlap_log_scale, checkpoint_norm_log_scale, reference_norm_log_scale]
+        # Each wavefunction has its own arbitrary normalization. Cancel those
+        # constants before combining overlaps and norms, including across steps.
+        checkpoint_global_scale = jnp.max(
+            jnp.where(valid, checkpoint_scale, -jnp.inf), axis=0
         )
-        common_scale = jnp.max(
-            jnp.where(valid[None], all_log_scales, -jnp.inf), axis=(0, 1)
+        reference_global_scale = jnp.max(
+            jnp.where(valid, reference_scale, -jnp.inf), axis=0
         )
-        common_scale = jnp.where(jnp.isfinite(common_scale), common_scale, 0)
+        checkpoint_global_scale = jnp.where(
+            jnp.isfinite(checkpoint_global_scale), checkpoint_global_scale, 0
+        )
+        reference_global_scale = jnp.where(
+            jnp.isfinite(reference_global_scale), reference_global_scale, 0
+        )
+        checkpoint_relative_scale = checkpoint_scale - checkpoint_global_scale
+        reference_relative_scale = reference_scale - reference_global_scale
 
         def combine(values: jax.Array, log_scales: jax.Array) -> jax.Array:
             return jnp.sum(
                 jnp.where(
                     valid,
-                    values * jnp.exp(log_scales - common_scale),
+                    values * jnp.exp(log_scales),
                     0,
                 ),
                 axis=0,
@@ -341,19 +347,19 @@ class FubiniStudyDistance(PerWalkerEstimator):
 
         overlap_sum = combine(
             batched_stats[f"{self.name}:overlap_sum"],
-            reference_scale + checkpoint_scale,
+            reference_relative_scale + checkpoint_relative_scale,
         )
         modulus_sum = combine(
             batched_stats[f"{self.name}:modulus_sum"],
-            reference_scale + checkpoint_scale,
+            reference_relative_scale + checkpoint_relative_scale,
         )
         checkpoint_norm_sum = combine(
             batched_stats[f"{self.name}:checkpoint_norm_sum"],
-            2 * checkpoint_scale,
+            2 * checkpoint_relative_scale,
         )
         reference_norm_sum = combine(
             batched_stats[f"{self.name}:reference_norm_sum"],
-            2 * reference_scale,
+            2 * reference_relative_scale,
         )
         metrics = _metrics_from_sums(
             overlap_sum,

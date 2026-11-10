@@ -10,14 +10,14 @@ coupling. Coordinates follow ``z = x - i*y``. The background disk is not a
 hard boundary. P05's real polynomial can change sign; its phase is retained.
 """
 
-import math
-
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
+
+from ._validation import validate_fitted_coupling
 
 __all__ = ["DiskP05C330", "DiskP10C459", "DiskP11C476"]
 __all__ += ["FITTED_COEFFICIENTS"]
@@ -74,12 +74,24 @@ class _DiskRound13(Wavefunction[HallData, ComplexWFOutput]):
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
 
+    def setup(self) -> None:
+        validate_fitted_coupling(self.kappa)
+        if isinstance(self, DiskP05C330):
+            return
+        p, k = FITTED_COEFFICIENTS[type(self).__name__], self.kappa
+        u = k / (1 + k)
+        self.radial_quartic = p["cR4"] + p["cR4u"] * u
+        self.pair_quartic = p["cD4"] + p["cD4u"] * u
+        if isinstance(self, DiskP11C476):
+            self.pair_quartic += p["cD4k"] * k
+        # For six electrons, D4/R4 <= 24, attained by balanced opposite triples.
+        if self.radial_quartic + 24 * min(self.pair_quartic, 0.0) < 0:
+            raise ValueError("kappa must preserve a decaying quartic envelope.")
+
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons
         if sum(self.nspins) != 6 or electrons.shape[-2:] != (6, 2):
             raise ValueError("These fitted wavefunctions require six 2D electrons.")
-        if not math.isfinite(self.kappa) or self.kappa < 0:
-            raise ValueError("kappa must be finite and non-negative.")
 
         x, y = electrons[..., 0], electrons[..., 1]
         z = x - 1j * y
@@ -106,13 +118,12 @@ class _DiskRound13(Wavefunction[HallData, ComplexWFOutput]):
         else:
             a = p["cR2"] + p["cR2k"] * k + p["cR2u"] * u + p["cR2u2"] * u**2
             b = p["cZ2"] + p["cZ2k"] * k + p["cZ2u"] * u
-            c = p["cR4"] + p["cR4u"] * u
-            d = p["cD4"] + p["cD4u"] * u
             d4 = jnp.sum(jnp.abs(differences) ** 4, axis=-1)
             if isinstance(self, DiskP11C476):
                 a += p["cR2k2"] * k**2
-                d += p["cD4k"] * k
-            envelope = -a * r2 - b * z2 - c * r4 - d * d4
+            envelope = (
+                -a * r2 - b * z2 - self.radial_quartic * r4 - self.pair_quartic * d4
+            )
             if isinstance(self, DiskP11C476):
                 envelope = envelope + 1j * (p["pR2"] + p["pR2u"] * u) * r2
 

@@ -84,6 +84,9 @@ class SphericalAngularMomentum(PerWalkerEstimator):
     action on spinors is independent of the monopole strength, so the same
     estimator covers the field-free sphere and the Haldane sphere.
 
+    Local values remain complex for variational penalty gradients. Reported
+    means and variances use their real parts.
+
     Args:
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
         data_field: Electron-coordinate field name (runtime dep).
@@ -129,10 +132,14 @@ class SphericalAngularMomentum(PerWalkerEstimator):
         angular_momentum_z_square = -(gradient[2] ** 2 + second_z)
         angular_momentum_square = -(jnp.sum(gradient**2) + laplacian)
         return {
-            "angular_momentum_z": angular_momentum_z.real,
-            "angular_momentum_z_square": angular_momentum_z_square.real,
-            "angular_momentum_square": angular_momentum_square.real,
+            "angular_momentum_z": angular_momentum_z,
+            "angular_momentum_z_square": angular_momentum_z_square,
+            "angular_momentum_square": angular_momentum_square,
         }, state
+
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        # Keep the imaginary local contributions available to penalty losses.
+        return mean_reduce(jax.tree.map(jnp.real, walker_stats))
 
 
 def _angular_momentum_characters(

@@ -183,6 +183,9 @@ def configure_system(
 
     Returns:
         Tuple of (system_config, wavefunction).
+
+    Raises:
+        ValueError: If the system and wavefunction specify conflicting orbital counts.
     """
     system_config: HallGeometryConfig = cfg.get_module(
         "system", "jaqmc.app.hall.config:HallSphereConfig"
@@ -193,7 +196,15 @@ def configure_system(
         wf.flux = system_config.flux
         if "monopole_strength" in wf.__dataclass_fields__:
             wf.monopole_strength = system_config.flux
-        if "num_orbitals" in wf.__dataclass_fields__:
+        if (
+            "num_orbitals" in wf.__dataclass_fields__
+            and system_config.num_orbitals is not None
+        ):
+            if (
+                wf.num_orbitals is not None
+                and wf.num_orbitals != system_config.num_orbitals
+            ):
+                raise ValueError("wf.num_orbitals and system.num_orbitals must agree.")
             wf.num_orbitals = system_config.num_orbitals
         return system_config, wf
     if isinstance(system_config, HallSphereConfig):
@@ -230,6 +241,9 @@ def make_sampler(
 
     Returns:
         The configured geometry-specific sampler.
+
+    Raises:
+        ValueError: If the sampler and edge estimator use different radii.
     """
     if isinstance(system_config, HallTorusConfig):
         default = MCMCSampler(
@@ -251,7 +265,16 @@ def make_sampler(
         default = MCMCSampler(sampling_proposal=sphere_proposal)
     else:
         raise NotImplementedError(f"Unsupported Hall geometry: {type(system_config)}")
-    return cfg.get("sampler", default)
+    sampler = cfg.get("sampler", default)
+    if isinstance(default, PinnedDiskMCMCSampler) and (
+        not isinstance(sampler, PinnedDiskMCMCSampler)
+        or sampler.edge_radius != default.edge_radius
+    ):
+        raise ValueError(
+            "sampler.edge_radius must match estimators.edge_green.edge_radius. "
+            "Configure the edge radius with estimators.edge_green.edge_radius."
+        )
+    return sampler
 
 
 def make_estimators(
@@ -419,13 +442,15 @@ def make_disk_estimators(
     system_config: HallDiskConfig,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
+    if cfg.get("estimators.enabled.edge_green", False):
+        return make_disk_edge_estimators(cfg, wf, system_config, always_enable_energy)
     estimators: dict[str, EstimatorLike] = {}
-    energy_enabled = always_enable_energy or cfg.get("estimators.enabled.energy", True)
     has_penalties = bool(
         system_config.lz_penalty
         or system_config.l2_penalty
         or system_config.lz_var_penalty
     )
+    energy_enabled = always_enable_energy or cfg.get("estimators.enabled.energy", True)
     angular_momentum_enabled = cfg.get(
         "estimators.enabled.angular_momentum", energy_enabled or has_penalties
     )
@@ -499,6 +524,45 @@ def make_disk_estimators(
         estimators["short_range"] = estimator
 
     return estimators
+
+
+def make_disk_edge_estimators(
+    cfg: ConfigManagerLike,
+    wf: Any,
+    system_config: HallDiskConfig,
+    training: bool,
+) -> dict[str, EstimatorLike]:
+    """Build observables compatible with pinned edge sampling.
+
+    Returns:
+        Edge correlations and optional conditional wavefunction scans.
+
+    Raises:
+        ValueError: If training or an equilibrium observable is requested.
+    """
+    if training:
+        raise ValueError("edge_green is only available during disk evaluation.")
+    if (
+        system_config.lz_penalty
+        or system_config.l2_penalty
+        or system_config.lz_var_penalty
+    ):
+        raise ValueError("edge_green cannot be combined with angular penalties.")
+    for name in (
+        "energy",
+        "angular_momentum",
+        "density",
+        "pair_correlation",
+        "one_rdm",
+        "structure_factor",
+        "short_range",
+    ):
+        if cfg.get(f"estimators.enabled.{name}", False):
+            raise ValueError(
+                f"edge_green cannot be combined with {name}. "
+                "Evaluate equilibrium observables in a separate run."
+            )
+    return make_disk_observables(cfg, wf, system_config)
 
 
 def make_disk_observables(

@@ -63,10 +63,10 @@ class DiskPenalizedLoss(Estimator):
             l2 = prev_walker_stats["observable:angular_momentum_z_square"]
             loss = loss + self.l2_penalty * l2
 
-        if self.lz_var_penalty is not None:
+        if self.lz_var_penalty:
             lz = prev_walker_stats["observable:angular_momentum_z"]
             lz_sq = prev_walker_stats["observable:angular_momentum_z_square"]
-            mean_lz = parallel_jax.pmean(jnp.nanmean(lz, axis=0))
+            mean_lz = parallel_jax.pnanmean(jnp.real(lz))
             local_variance = lz_sq - 2 * mean_lz * lz + mean_lz**2
             loss = loss + self.lz_var_penalty * local_variance
 

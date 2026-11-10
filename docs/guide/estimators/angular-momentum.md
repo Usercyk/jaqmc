@@ -60,6 +60,11 @@ $$
 Differentiating just three scalar rotation angles (independent of the electron count) avoids coordinate singularities and is cheaper than differentiating
 every electron coordinate separately.
 
+The per-walker values of these Hermitian operators can be complex. Their
+imaginary parts contribute to parameter gradients for complex wavefunctions,
+so angular-momentum penalties retain the full local values. Statistics written
+to training and evaluation output report the real parts and their variances.
+
 ## Sector projection
 
 A mixture of total-$L$ sectors can share the same $\langle L_z\rangle$ and

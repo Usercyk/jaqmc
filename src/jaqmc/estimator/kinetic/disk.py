@@ -11,7 +11,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import PerWalkerEstimator
+from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
@@ -20,6 +20,9 @@ from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 @configurable_dataclass
 class DiskKinetic(PerWalkerEstimator):
     """Kinetic energy estimator on a disk geometry.
+
+    Local angular-momentum values remain complex for penalty gradients.
+    Their reported means and variances use the real parts.
 
     Args:
         include_energy: Include the kinetic energy in the output.
@@ -88,14 +91,24 @@ class DiskKinetic(PerWalkerEstimator):
         D2_f = term1 + term2 + term3 + term4 + term5
 
         angular_momentum_z_square = -(D_f**2 + D2_f)
-        angular_momentum_z = jnp.sum(x * grad_y.imag - y * grad_x.imag)
+        angular_momentum_z = -1j * D_f
 
         results = {
             "energy:kinetic": kinetic_energy,
-            "observable:angular_momentum_z": angular_momentum_z.real,
-            "observable:angular_momentum_z_square": angular_momentum_z_square.real,
+            "observable:angular_momentum_z": angular_momentum_z,
+            "observable:angular_momentum_z_square": angular_momentum_z_square,
         }
 
         if not self.include_energy:
             results.pop("energy:kinetic")
         return results, state
+
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        # Penalty gradients need complex local values; reported angular
+        # observables and their variances use their real parts.
+        return mean_reduce(
+            {
+                key: value.real if key.startswith("observable:") else value
+                for key, value in walker_stats.items()
+            }
+        )

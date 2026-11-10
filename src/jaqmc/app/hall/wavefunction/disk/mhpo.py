@@ -95,28 +95,25 @@ class DiskOrbitals(nn.Module):
     ) -> jnp.ndarray:
         orbitals = self.orbitals_real(h_one) + 1j * self.orbitals_imag(h_one)
 
+        if self.envelope_type != EnvelopeType.no_m_learnable:
+            # Bounded Cartesian powers preserve derivatives at the origin.
+            # Restore their magnitude together with the Gaussian in log space.
+            scale_square = jnp.maximum(1.0, x**2 + y**2)
+            z = (x - 1j * y) / jnp.sqrt(scale_square)
+            powers = [jnp.ones_like(z)]
+            for _ in range(1, self.num_orbitals):
+                powers.append(powers[-1] * z)
+            basis = jnp.stack(powers, axis=-1)
+            m = jnp.arange(self.num_orbitals)
+            log_scale = 0.5 * jnp.log(scale_square)[..., None] * m - 0.5 * jnp.asarray(
+                ss.gammaln(np.arange(self.num_orbitals) + 1.0)
+            )
+            if self.envelope_type != EnvelopeType.m_learnable:
+                log_scale = log_scale - 0.5 * m * jnp.log(2.0)
+
         if self.envelope_type == EnvelopeType.m_learnable2_old:
             r_square = (x**2 + y**2)[..., None]
-            sigma = self.sigma
-
-            m = jnp.arange(self.num_orbitals)
-            z = (x - 1j * y)[..., None]
-            safe_z = jnp.where(z == 0, 1.0, z)
-
-            log_norm = jnp.asarray(
-                -0.5 * ss.gammaln(np.arange(self.num_orbitals) + 1.0)
-                - 0.5 * np.arange(self.num_orbitals) * np.log(2.0)
-            )
-            envelope_log = m * jnp.log(safe_z) + log_norm - r_square * jnp.abs(sigma)
-            envelope = jnp.where(
-                z == 0,
-                jnp.where(
-                    m == 0,
-                    jnp.exp(log_norm - r_square * jnp.abs(sigma)),
-                    0.0,
-                ),
-                jnp.exp(envelope_log),
-            )
+            envelope = basis * jnp.exp(log_scale - r_square * jnp.abs(self.sigma))
 
             orbitals = jnp.sum(
                 orbitals * envelope[..., None, None],
@@ -135,49 +132,15 @@ class DiskOrbitals(nn.Module):
         if self.envelope_type == EnvelopeType.no_m_learnable:
             envelope = amplitude_mi * jnp.exp(-r_square * sigma_mi)
 
-        elif self.envelope_type == EnvelopeType.m_learnable:
-            m = jnp.arange(self.num_orbitals)
-            z = (x - 1j * y)[..., None]
-
-            z_power = z**m
-
-            log_norm = jnp.asarray(
-                -0.5 * ss.gammaln(np.arange(self.num_orbitals) + 1.0)
-            )
+        elif self.envelope_type in (
+            EnvelopeType.m_learnable,
+            EnvelopeType.m_learnable2,
+        ):
             envelope = (
                 amplitude_mi
-                * z_power[..., None]
-                * jnp.exp(log_norm[None, :, None] - r_square * sigma_mi)
+                * basis[..., None]
+                * jnp.exp(log_scale[..., None] - r_square * sigma_mi)
             )
-
-        elif self.envelope_type == EnvelopeType.m_learnable2:
-            m = jnp.arange(self.num_orbitals)
-            r_square = x**2 + y**2
-            theta = jnp.arctan2(y, x)
-            r = jnp.sqrt(r_square)
-            safe_r = jnp.where(r > 0, r, 1.0)
-            log_r = jnp.log(safe_r)
-            log_norm = jnp.asarray(
-                -0.5 * ss.gammaln(np.arange(self.num_orbitals) + 1.0)
-                - 0.5 * np.arange(self.num_orbitals) * np.log(2.0)
-            )
-
-            log_magnitude = (
-                log_norm[None, :, None]
-                + log_r[:, None, None] * m[None, :, None]
-                - r_square[:, None, None] * sigma_mi
-            )
-
-            phase = jnp.exp(-1j * theta[:, None, None] * m[None, :, None])
-            basis = jnp.exp(log_magnitude) * phase
-            zero_at_positive_m = (r == 0)[:, None, None] & (m > 0)[None, :, None]
-            basis = jnp.where(
-                zero_at_positive_m,
-                0.0,
-                basis,
-            )
-
-            envelope = amplitude_mi * basis
 
         else:
             raise ValueError(f"Unknown envelope type: {self.envelope_type}")
@@ -211,7 +174,8 @@ class DiskMHPO(Wavefunction[HallData, ComplexWFOutput]):
         flux_per_elec: Reserved compatibility field. Disk orbitals use ``flux``
             directly and do not apply flux attachment.
         envelope_type: The type of envelope to apply to the orbitals.
-        num_orbitals: Orbital count override. Defaults to ``flux``.
+        num_orbitals: Orbital count override. Defaults to ``system.num_orbitals``
+            when provided, otherwise ``flux``. Explicit overrides must agree.
     """
 
     nspins: tuple[int, int] = runtime_dep()

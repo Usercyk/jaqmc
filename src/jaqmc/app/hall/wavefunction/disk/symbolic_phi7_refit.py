@@ -7,14 +7,14 @@ Coefficients are copied verbatim from the supplied CSV. This independent
 module preserves the earlier DiskPhi7 implementation and its results.
 """
 
-import math
-
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
+
+from ._validation import validate_fitted_coupling
 
 FITTED_PARAMETERS = {
     "alpha": 0.2064900697136671,
@@ -42,12 +42,20 @@ class DiskPhi7RefitC363(Wavefunction[HallData, ComplexWFOutput]):
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
 
+    def setup(self) -> None:
+        p = FITTED_PARAMETERS
+        validate_fitted_coupling(
+            self.kappa,
+            quartic_slope=p["the"],
+            denominator_slopes=tuple(
+                p[key] for key in ("beta", "rho", "a1", "b1", "c1")
+            ),
+        )
+
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons
         if sum(self.nspins) != 6 or electrons.shape[-2:] != (6, 2):
             raise ValueError("This fitted phi_7 requires six 2D electrons.")
-        if not math.isfinite(self.kappa) or self.kappa < 0:
-            raise ValueError("kappa must be finite and nonnegative.")
         p, k = FITTED_PARAMETERS, self.kappa
         x, y = electrons[..., 0], electrons[..., 1]
         z = x - 1j * y

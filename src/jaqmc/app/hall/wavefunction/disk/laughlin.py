@@ -19,6 +19,18 @@ class DiskLaughlin(Wavefunction[HallData, ComplexWFOutput]):
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
 
+    def setup(self) -> None:
+        nelec = sum(self.nspins)
+        if nelec <= 0 or self.flux <= 0 or self.flux % nelec:
+            raise ValueError(
+                "DiskLaughlin requires flux/N to be a positive odd integer."
+            )
+        self.pair_power = self.flux // nelec
+        if self.pair_power % 2 != 1:
+            raise ValueError(
+                "DiskLaughlin requires flux/N to be a positive odd integer."
+            )
+
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons
 
@@ -29,7 +41,7 @@ class DiskLaughlin(Wavefunction[HallData, ComplexWFOutput]):
         r_square = x**2 + y**2
 
         n_elec = sum(self.nspins)
-        m = self.flux / n_elec
+        m = self.pair_power
         dz = z[..., :, None] - z[..., None, :]
 
         i, j = jnp.triu_indices(n_elec, k=1)

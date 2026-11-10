@@ -16,6 +16,8 @@ from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 
+from ._validation import validate_fitted_coupling
+
 __all__ = ["DiskPhi4", "DiskPhi7", "DiskPhi8"]
 
 
@@ -26,6 +28,16 @@ class _DiskSymbolic(Wavefunction[HallData, ComplexWFOutput]):
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
     _candidate = 4
+
+    def setup(self) -> None:
+        p = _COEFFICIENTS[self._candidate]
+        validate_fitted_coupling(
+            self.kappa,
+            quartic_slope=p["theta"],
+            denominator_slopes=tuple(
+                p[key] for key in ("beta", "rho", "a1", "b1", "c1") if key in p
+            ),
+        )
 
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons

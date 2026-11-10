@@ -158,7 +158,8 @@ class HallDiskConfig(HallGeometryConfig):
         nspins: ``(n_up, n_down)`` electron counts.
         radius: Disk radius. Defaults to :math:`\sqrt{2Q}`.
         d: Separation from the neutralizing background disk.
-        num_orbitals: Number of neural orbitals. Defaults to ``flux``.
+        num_orbitals: Number of neural orbitals. Explicit ``wf.num_orbitals``
+            settings must agree. Defaults to the wavefunction setting or ``flux``.
         interaction_type: Interaction potential form.
         interaction_strength: Scaling factor for the potential energy.
         lz_center: Target :math:`L_z` for the penalty method.

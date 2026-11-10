@@ -53,14 +53,18 @@ has angular momentum $-m$. Training uses `system.lz_penalty`, `system.l2_penalty
 and `system.lz_var_penalty` to select angular-momentum sectors. On the disk,
 `l2_penalty` multiplies $L_z^2$; `lz_var_penalty` penalizes its variance.
 Penalties require energy and angular-momentum evaluation to remain enabled.
+The local angular-momentum values remain complex when constructing training
+losses. Reported angular-momentum means and variances use their real parts.
 
 ## Wavefunctions
 
 The default neural ansatz is `jaqmc.app.hall.wavefunction.disk.mhpo:DiskMHPO`.
 It uses a Psiformer, disk orbitals, and a trainable Jastrow. Its envelope choices
 are `no_m_learnable`, `m_learnable`, `m_learnable2` (default), and
-`m_learnable2_old`. `system.num_orbitals` overrides the default orbital count,
-which equals `system.flux`.
+`m_learnable2_old`. Cartesian polynomial recurrences keep the orbital values
+and their coordinate derivatives regular at the origin.
+The orbital count defaults to `system.flux`. Either `system.num_orbitals` or
+`wf.num_orbitals` sets the count. When both are provided, they must agree.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.wavefunction.disk.mhpo.DiskMHPO
@@ -70,8 +74,9 @@ which equals `system.flux`.
 
 The parameter-free `wf.module=laughlin` evaluates
 $\prod_{i<j}(z_i-z_j)^m\exp(-\sum_i|z_i|^2/4)$, where
-$m=\mathtt{flux}/N$. Fully polarized fermionic Laughlin states have odd integer
-$m$. They can be evaluated directly without a training checkpoint:
+$m=\mathtt{flux}/N$. Initialization requires positive odd integer $m$ to preserve
+fermionic exchange symmetry. These states can be evaluated directly without a
+training checkpoint:
 
 ```bash
 jaqmc hall evaluate system.module=jaqmc.app.hall.config:HallDiskConfig \
@@ -92,6 +97,18 @@ coefficients and explicit class selections:
 For example, `wf.module=symbolic:DiskPhi4` selects a fitted state. Its `wf.kappa`
 and the Hamiltonian's `system.interaction_strength` are separate settings and
 should describe the same intended coupling.
+Rational fitted envelopes validate finite nonnegative `wf.kappa`, exclude
+poles in their denominators, and require a decaying quartic term. For `DiskPhi4`,
+`DiskPhi7`, `DiskPhi8`, `DiskP6`, and `DiskPhi7RefitC363`, this imposes
+$\kappa<-1/\theta$ for the fitted quartic-denominator slope $\theta<0$.
+Their respective upper bounds are approximately 29.17, 28.94, 28.25, 25.03,
+and 23.92. The bound itself and any internal poles are excluded. These
+conditions guarantee a confining far-field envelope without changing the
+fitted coefficients.
+For `DiskP10C459` and `DiskP11C476`, the combined quartic form
+$C R_4+D D_4$ must satisfy $C+24\min(D,0)\geq0$, where
+$R_4=\sum_i|z_i|^4$ and $D_4=\sum_{i<j}|z_i-z_j|^4$.
+This excludes their nonconfining small-coupling region, including $\kappa=0$.
 
 ## Observables
 
@@ -135,8 +152,14 @@ Pair-correlation bins with no density support are undefined and remain `NaN`.
 positive infinity.
 
 Edge Green-function evaluation uses a conditional sampler that fixes the first
-electron at the configured edge radius. Equilibrium observables use a separate
-evaluation with the ordinary disk sampler.
+electron at `estimators.edge_green.edge_radius`, which defaults to
+`system.radius`. If `sampler.edge_radius` is also provided, it must match.
+Enabling `edge_green` disables energy and angular-momentum estimation by
+default. Explicitly enabling energy, angular momentum, density, pair
+correlation, one-RDM, structure factor, or short-range estimation in the same
+run raises a configuration error. Angular penalties and training are also
+incompatible with edge Green-function estimation. Equilibrium observables
+use a separate evaluation with the ordinary disk sampler.
 
 ## Wavefunction overlap
 

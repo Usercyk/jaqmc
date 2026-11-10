@@ -1,6 +1,8 @@
 # Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from operator import itemgetter
+
 import jax
 import numpy as np
 import pytest
@@ -74,7 +76,8 @@ def test_metrics_are_stable_under_large_checkpoint_normalizations():
         np.testing.assert_allclose(actual[key], expected[key], atol=1e-6)
 
 
-def test_finalize_combines_steps_with_different_log_scales():
+@pytest.mark.parametrize("shift", [0.0, 50.0, -1000.0])
+def test_finalize_combines_steps_with_different_log_scales(shift: float):
     ratios = jnp.asarray(
         [
             [4.0 + 0.2j, -2.0 + 0.1j, 1.0 - 0.3j],
@@ -88,9 +91,10 @@ def test_finalize_combines_steps_with_different_log_scales():
         checkpoint_steps=(10, 20, 30),
         reference_index=1,
     )
+    shifted = ratios + jnp.asarray([shift, -2 * shift, 3 * shift])
     step_stats = [
-        estimator.reduce({"fubini:log_ratio": ratios[:2]}),
-        estimator.reduce({"fubini:log_ratio": ratios[2:]}),
+        estimator.reduce({"fubini:log_ratio": shifted[:2]}),
+        estimator.reduce({"fubini:log_ratio": shifted[2:]}),
     ]
     stacked = jax.tree.map(lambda *parts: jnp.stack(parts), *step_stats)
 
@@ -101,6 +105,16 @@ def test_finalize_combines_steps_with_different_log_scales():
         np.testing.assert_allclose(actual[key], value, rtol=2e-6, atol=2e-6)
     np.testing.assert_array_equal(actual["fubini:step"], [10, 20, 30])
     assert actual["fubini:reference_step"] == 20
+
+
+def test_finalize_identical_states_with_large_normalization_difference() -> None:
+    estimator = FubiniStudyDistance(checkpoint_steps=(1, 2), reference_index=1)
+    reduced = estimator.reduce(
+        {"fubini:log_ratio": jnp.tile(jnp.array([1000.0 + 0j, 0j]), (4, 1))}
+    )
+    actual = estimator.finalize_stats(jax.tree.map(itemgetter(None), reduced), None)
+    np.testing.assert_allclose(actual["fubini:cosine"], [1, 1], atol=1e-6)
+    np.testing.assert_allclose(actual["fubini:distance"], [0, 0], atol=1e-6)
 
 
 def test_load_checkpoints_sorts_steps_and_selects_reference(tmp_path):

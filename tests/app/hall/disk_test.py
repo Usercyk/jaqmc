@@ -160,10 +160,14 @@ def test_disk_observable_workflow(tmp_path, observable):
         },
     }
     config["estimators"][observable] = extras[observable]
+    if observable == "edge_green":
+        del config["estimators"]["energy"]
     HallEvalWorkflow(ConfigManager(config))()
     with np.load(tmp_path / "evaluation_digest.npz") as digest:
         names = [k for k in digest.files if k.startswith(observable)]
         assert names, digest.files
+        if observable == "edge_green":
+            assert "total_energy" not in digest.files
         for key in names:
             finite_summary(key, digest[key])
         if observable == "short_range":

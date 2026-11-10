@@ -7,14 +7,14 @@ Coefficients follow the attachment's full-precision Python formulas. There
 is no additional Gaussian, fitted normalization, or trainable parameter.
 """
 
-import math
-
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
+
+from ._validation import validate_fitted_coupling
 
 FITTED_COEFFICIENTS = {
     "DiskP6": dict(
@@ -72,12 +72,18 @@ class _DiskSymbolic20261021(Wavefunction[HallData, ComplexWFOutput]):
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
 
+    def setup(self) -> None:
+        p = FITTED_COEFFICIENTS[type(self).__name__]
+        validate_fitted_coupling(
+            self.kappa,
+            quartic_slope=p.get("theta", 0.0),
+            denominator_slopes=tuple(p[key] for key in ("beta", "rho") if key in p),
+        )
+
     def __call__(self, data: HallData) -> ComplexWFOutput:
         electrons = data.electrons
         if sum(self.nspins) != 6 or electrons.shape[-2:] != (6, 2):
             raise ValueError("These fitted states require six 2D electrons.")
-        if not math.isfinite(self.kappa) or self.kappa < 0:
-            raise ValueError("kappa must be finite and nonnegative.")
         x, y = electrons[..., 0], electrons[..., 1]
         z = x - 1j * y
         i, j = jnp.triu_indices(6, k=1)

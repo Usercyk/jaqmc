@@ -198,6 +198,7 @@ On the sphere, this accumulates a histogram of the polar angle $\theta$:
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.density.spherical.SphericalDensity
    :prefix: estimators.density
+   :scope: Sphere
 ```
 
 On the torus, it accumulates a 2-D histogram in the fractional coordinates
@@ -206,6 +207,7 @@ $(u,v)\in[0,1)^2$:
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.density.torus.TorusDensity
    :prefix: estimators.density
+   :scope: Torus
 ```
 
 ### Pair correlation (`estimators.pair_correlation.*`)
@@ -221,6 +223,7 @@ the digest key `pair_correlation:n_steps` — to obtain $g(\theta)$:
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.sphere.pair_correlation.SpherePairCorrelation
    :prefix: estimators.pair_correlation
+   :scope: Sphere
 ```
 
 On the torus, it computes the two-dimensional
@@ -235,7 +238,12 @@ its bin-center axes are written to the digest as `pair_correlation`,
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.torus.pair_correlation.TorusPairCorrelation
    :prefix: estimators.pair_correlation
+   :scope: Torus
 ```
+
+Evaluation checkpoints that stored one torus pair histogram per device require
+a fresh evaluation directory. Their training checkpoints can still provide
+`workflow.source_path` for the new evaluation.
 
 The matrix can be plotted directly as a heatmap:
 
@@ -262,6 +270,7 @@ $N_\text{LLL}$:
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.sphere.one_rdm.SphereOneRDM
    :prefix: estimators.one_rdm
+   :scope: Sphere
 ```
 
 On the torus, it uses the normalized `n=0,1,2` Landau-level orbitals
@@ -272,6 +281,7 @@ matrix shape is `(3 * flux, 3 * flux)`:
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.torus.one_rdm.TorusOneRDM
    :prefix: estimators.one_rdm
+   :scope: Torus
 ```
 
 For both geometries, the digest contains `one_rdm`,

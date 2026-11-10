@@ -6,12 +6,12 @@ r"""Two-dimensional pair-correlation estimator for electrons on a torus."""
 from collections.abc import Mapping
 from typing import Any
 
-import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.base import Estimator
+from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
@@ -54,7 +54,7 @@ class TorusPairCorrelation(Estimator):
 
     def init(self, data: Data, rngs: PRNGKey) -> dict[str, jnp.ndarray]:
         del data, rngs
-        shape = (jax.device_count(), self.bins_u, self.bins_v)
+        shape = (self.bins_u, self.bins_v)
         return {
             "histogram": jnp.zeros(shape),
             "compensation": jnp.zeros(shape),
@@ -102,8 +102,13 @@ class TorusPairCorrelation(Estimator):
 
         # Both pair directions are already present. Dividing by the fractional
         # bin area multiplies the raw counts by bins_u * bins_v.
-        global_batch_size = batch_size * jax.device_count()
-        increment = counts * self.bins_u * self.bins_v / (global_batch_size * nelec**2)
+        global_batch_size = parallel_jax.psum(batch_size)
+        increment = (
+            parallel_jax.psum(counts)
+            * self.bins_u
+            * self.bins_v
+            / (global_batch_size * nelec**2)
+        )
         adjusted = increment - state["compensation"]
         new_sum = state["histogram"] + adjusted
         new_compensation = (new_sum - state["histogram"]) - adjusted
@@ -122,7 +127,7 @@ class TorusPairCorrelation(Estimator):
     def finalize_state(
         self, state: dict[str, jnp.ndarray], *, n_steps: int
     ) -> dict[str, Any]:
-        correlation = jnp.sum(state["histogram"], axis=0) / n_steps
+        correlation = state["histogram"] / n_steps
         u_centers = (jnp.arange(self.bins_u) + 0.5) / self.bins_u - 0.5
         v_centers = (jnp.arange(self.bins_v) + 0.5) / self.bins_v - 0.5
         return {
