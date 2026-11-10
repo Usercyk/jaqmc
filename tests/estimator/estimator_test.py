@@ -15,6 +15,7 @@ from jaqmc.estimator import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
+from jaqmc.estimator.base import mean_reduce
 
 
 def _dummy_evaluate(params, data, stats, state, rngs):
@@ -72,10 +73,10 @@ def test_local_estimator_chunks_default_vmap():
     chunked_est = _LocalValueEstimator(vmap_chunk_size=3)
 
     full, _ = full_est.evaluate_batch_walkers(
-        params, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
+        params, batched_data, prev_walker_stats, None, jax.random.key(0)
     )
     chunked, _ = chunked_est.evaluate_batch_walkers(
-        params, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
+        params, batched_data, prev_walker_stats, None, jax.random.key(0)
     )
 
     np.testing.assert_allclose(chunked["value"], full["value"])
@@ -102,7 +103,7 @@ def _make_pipeline_and_state():
 
 def test_pipeline_evaluate_returns_flat_stats():
     pipeline, state = _make_pipeline_and_state()
-    rngs = jax.random.PRNGKey(0)
+    rngs = jax.random.key(0)
     step_stats, _ = pipeline.evaluate(None, None, state, rngs)
     assert set(step_stats.keys()) == {"x", "y"}
     assert step_stats["x"] == pytest.approx(1.0)
@@ -111,7 +112,7 @@ def test_pipeline_evaluate_returns_flat_stats():
 
 def test_pipeline_finalize_stats_averages_and_dispatches():
     pipeline, state = _make_pipeline_and_state()
-    rngs = jax.random.PRNGKey(0)
+    rngs = jax.random.key(0)
     step_stats, state = pipeline.evaluate(None, None, state, rngs)
     # Add batch dim of 1, same as VMC does
     batched = jax.tree.map(itemgetter(None), step_stats)
@@ -122,7 +123,7 @@ def test_pipeline_finalize_stats_averages_and_dispatches():
 
 def test_pipeline_finalize_stats_averages_stacked():
     pipeline, state = _make_pipeline_and_state()
-    rngs = jax.random.PRNGKey(0)
+    rngs = jax.random.key(0)
     pipeline.evaluate(None, None, state, rngs)
     # Simulate stacked evaluation data (3 steps)
     stacked = {"x": np.array([1.0, 2.0, 3.0]), "y": np.array([4.0, 6.0, 8.0])}
@@ -138,3 +139,10 @@ def test_pipeline_finalize_stats_raises_before_evaluate():
     pipeline = EstimatorPipeline({"a": _BatchEstimator("x", 1.0)})
     with pytest.raises(RuntimeError, match=r"finalize_stats.*before evaluate"):
         pipeline.finalize_stats({"x": np.array([1.0])}, {"a": None})
+
+
+def test_mean_reduce_variance_stays_accurate_far_from_zero():
+    values = jnp.asarray([-1000.0, -999.99], dtype=jnp.float32)
+    got = mean_reduce({"energy": values})["energy_var"]
+    ref = np.var(np.asarray(values, dtype=np.float64))
+    np.testing.assert_allclose(got, ref, rtol=1e-5, atol=0)

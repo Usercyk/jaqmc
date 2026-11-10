@@ -27,6 +27,12 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 .. autofunction:: jaqmc.utils.array.match_first_axis_of
 ```
 
+## Linear algebra
+
+```{eval-rst}
+.. autofunction:: jaqmc.utils.linalg.slogdet_blocks
+```
+
 ## Clipping
 
 ```{eval-rst}
@@ -45,7 +51,7 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 
 ```{eval-rst}
 .. autofunction:: jaqmc.utils.supercell.get_reciprocal_vectors
-.. autofunction:: jaqmc.utils.supercell.get_supercell_kpts
+.. autofunction:: jaqmc.utils.supercell.get_primitive_kpts_for_supercell
 .. autofunction:: jaqmc.utils.supercell.get_supercell_copies
 ```
 
@@ -85,9 +91,11 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 ```{eval-rst}
 .. autofunction:: jaqmc.utils.parallel_jax.make_mesh
 .. autofunction:: jaqmc.utils.parallel_jax.make_sharding
+.. autofunction:: jaqmc.utils.parallel_jax.shard_rngs
 .. autofunction:: jaqmc.utils.parallel_jax.jit_sharded
 .. autofunction:: jaqmc.utils.parallel_jax.pvary
 .. autofunction:: jaqmc.utils.parallel_jax.pmean
+.. autofunction:: jaqmc.utils.parallel_jax.psum
 .. autofunction:: jaqmc.utils.parallel_jax.all_gather
 .. autofunction:: jaqmc.utils.parallel_jax.process_allgather
 .. autofunction:: jaqmc.utils.parallel_jax.addressable_data

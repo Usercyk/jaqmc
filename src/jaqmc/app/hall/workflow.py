@@ -10,7 +10,10 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike, FubiniStudyDistance
-from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
+from jaqmc.estimator.angular_momentum import (
+    SphericalAngularMomentum,
+    SphericalAngularMomentumProjection,
+)
 from jaqmc.estimator.density import SphericalDensity, TorusDensity
 from jaqmc.estimator.kinetic import SphericalKinetic, TorusKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
@@ -55,7 +58,8 @@ class HallTrainWorkflow(VMCWorkflow):
             "train": {
                 "run": {"iterations": 200_000},
                 "writers": {"console": {"fields": console_fields}},
-                "grads": {"clip_scale": 100, "clip_method": "iqr"},
+                "optim": {"learning_rate": {"delay": 10000, "warmup": 1000}},
+                "grads": {"clip_scale": 100},
             }
         }
 
@@ -96,6 +100,22 @@ class HallEvalWorkflow(EvaluationWorkflow):
         eval_estimators: dict[str, EstimatorLike] = make_estimators(
             cfg, wf, system_config
         )
+        if cfg.get("estimators.enabled.angular_projection", False):
+            if not isinstance(system_config, HallSphereConfig):
+                raise ValueError(
+                    "Angular-momentum projection requires a sphere system."
+                )
+            if not cfg.get("estimators.enabled.energy", True):
+                raise ValueError(
+                    "Angular-momentum projection requires "
+                    "estimators.enabled.energy=true."
+                )
+            eval_estimators["angular_projection"] = cfg.get(
+                "estimators.angular_projection",
+                SphericalAngularMomentumProjection(
+                    f_log_psi_from_spinor=wf.logpsi_from_spinor
+                ),
+            )
         evaluation.configure_estimators(**eval_estimators)
         self.evaluation_stage = evaluation.build()
 
@@ -138,6 +158,12 @@ def configure_system(
         wf.nspins = system_config.nspins
         wf.monopole_strength = system_config.flux / 2
         wf.flux = system_config.flux
+        wf.interaction_strength = system_config.interaction_strength
+        wf.radius = (
+            system_config.radius
+            if system_config.radius is not None
+            else float(jnp.sqrt(system_config.flux / 2))
+        )
 
         return system_config, wf
     if isinstance(system_config, HallTorusConfig):
@@ -279,7 +305,6 @@ def make_sphere_estimators(
         estimators["potential"] = cfg.get(
             "estimators.energy.potential",
             SpherePotential(
-                interaction_type=system_config.interaction_type,
                 monopole_strength=Q,
                 radius=radius,
                 interaction_strength=system_config.interaction_strength,

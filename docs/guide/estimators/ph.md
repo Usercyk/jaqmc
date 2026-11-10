@@ -1,6 +1,6 @@
 # Pseudo-Hamiltonian (PH) pseudopotentials
 
-For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators)).
+For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators), [solid](#solid-estimators)).
 
 Pseudo-Hamiltonian (PH) pseudopotentials are an alternative pseudopotential
 family that sits parallel to semi-local [ECP](project:ecp.md)
@@ -19,7 +19,7 @@ The implementation here is based on [Bennett et al., *J. Chem. Theory Comput.* *
 
 ## Supported elements
 
-PH is currently available for the 3d transition metals **Cr, Mn, Fe, Co, Ni, Cu, Zn** (from Bennett et al. 2022 and Ichibha et al. 2023) and for **S** (from Fu et al. 2025). The radial reference tables are bundled with JaQMC, so no external download is required. Selecting PH for any other element raises a configuration error at startup.
+PH is currently available for the 3d transition metals **Cr, Mn, Fe, Co, Ni, Cu, Zn** (from Bennett et al. 2022 and Ichibha et al. 2023) and the main-group elements **P, S, Cl** (from Fu et al. 2025). The radial reference tables are bundled with JaQMC, so no external download is required. Selecting PH for any other element raises a configuration error at startup.
 
 ## Configuration
 
@@ -33,9 +33,8 @@ system:
 ```
 
 In the example above, every `Fe` atom uses PH, every `Li` atom uses the
-`ccecp` ECP, and any other element is treated all-electron. PH and ECP atoms
-may coexist in the same molecule. Solid workflows accept the same unified
-`system.pp` syntax for ECPs, but reject `pp: ph` during system configuration.
+`ccecp` ECP, and any other element is treated all-electron. PH, ECP, and
+all-electron atoms may coexist in the same molecule or solid.
 
 ## Kinetic backend
 
@@ -45,7 +44,7 @@ On PH runs the kinetic energy is computed by the PH estimator rather than by a s
 - `standard` — Reverse-mode evaluation via `jax.grad` / `jax.hessian`, following [Bennett et al. (2022)](https://doi.org/10.1021/acs.jctc.1c00992). Slower than `forward_laplacian` but useful as a cross-check and in environments where the Forward Laplacian path is unavailable.
 
 :::{note}
-On PH runs the kinetic backend is controlled exclusively by `estimators.energy.ph.kinetic_backend`. Setting any `estimators.energy.kinetic.*` key on a PH system is an error and will fail the unused-config check at startup. A startup log line reports the active PH backend.
+On PH runs the kinetic backend is controlled exclusively by `estimators.energy.ph.kinetic_backend`. Setting any `estimators.energy.kinetic.*` key on a PH system is an error and will fail the unused-config check at startup.
 :::
 
 For the algorithm behind each backend, see [Backends](#ph-backends) below.
@@ -60,10 +59,6 @@ On a PH run the energy stats include:
 
 The total energy is the sum of these, plus any semi-local ECP contributions
 when PH and ECP coexist.
-
-## Limitations
-
-- PH is currently wired only for the molecule workflow. Solid systems are not yet supported.
 
 (ph-formulas)=
 ## Local energy formulas
@@ -178,5 +173,5 @@ This backend is slower than the Forward Laplacian path but easier to read and se
 - [Pseudopotentials (ECP)](project:ecp.md) — the sibling semi-local
   pseudopotential family.
 - [Kinetic energy](project:kinetic.md) — the standalone kinetic estimator used on non-PH systems.
-- Configuration: [Molecule](#molecule-estimators)
+- Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators)
 - API: {class}`~jaqmc.estimator.ph.PHEnergy`

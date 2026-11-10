@@ -5,7 +5,7 @@
 
 OBC tests: antisymmetry, diagonal zeros, norm consistency, shapes.
 PBC tests: boundary values of scaled_f/g, symmetry, cross-validation
-    of diagonal/orthogonal branches against the general branch.
+    of build_distance_fn against an independent exact minimum-image oracle.
 """
 
 import jax
@@ -86,10 +86,41 @@ def test_between_known_distance():
     np.testing.assert_allclose(disp[0, 0], jnp.array([-3.0, -4.0, 0.0]), atol=1e-6)
 
 
+def test_between_single_particle_shape():
+    """1D input without particle-count axis omits that axis from output."""
+    single = jnp.array([1.0, 2.0, 0.0])
+    many = jnp.array([[1.0, 2.0, 0.0], [4.0, 6.0, 0.0]])
+
+    disp_a, r_a = obc.pair_displacements_between(single, many)
+    assert disp_a.shape == (2, 3)
+    assert r_a.shape == (2,)
+    np.testing.assert_allclose(r_a, jnp.array([0.0, 5.0]), atol=1e-6)
+
+    disp_b, r_b = obc.pair_displacements_between(many, single)
+    assert disp_b.shape == (2, 3)
+    assert r_b.shape == (2,)
+    np.testing.assert_allclose(disp_b, -disp_a, atol=1e-6)
+    np.testing.assert_allclose(r_b, jnp.array([0.0, 5.0]), atol=1e-6)
+
+    disp_both, r_both = obc.pair_displacements_between(single, many[1])
+    assert disp_both.shape == (3,)
+    assert r_both.shape == ()
+    np.testing.assert_allclose(r_both, 5.0, atol=1e-6)
+
+
+def test_between_batched_shape():
+    """Batched (B, Na, D) and (B, Nb, D) inputs preserve aligned batch axes."""
+    a = jnp.zeros((4, 3, 2))
+    b = jnp.ones((4, 5, 2))
+    disp, r = obc.pair_displacements_between(a, b)
+    assert disp.shape == (4, 3, 5, 2)
+    assert r.shape == (4, 3, 5)
+
+
 def test_between_rejects_bad_input():
-    """Should reject mismatched ndim or non-2D input."""
+    """Should reject mismatched ndim or 0D input."""
     with pytest.raises(ValueError, match="n_a, ndim"):
-        obc.pair_displacements_between(jnp.array([1.0, 2.0]), jnp.ones((1, 2)))
+        obc.pair_displacements_between(jnp.array(1.0), jnp.ones((1, 2)))
     with pytest.raises(ValueError, match="spatial dimensions"):
         obc.pair_displacements_between(jnp.ones((2, 3)), jnp.ones((2, 2)))
 
@@ -135,71 +166,92 @@ def test_scaled_g_derivative_at_boundary():
     np.testing.assert_allclose(float(g_grad), -0.5, atol=1e-5)
 
 
-# -- PBC: cross-validate optimized branches against general branch -----
+# -- PBC: cross-validate build_distance_fn against exact oracle --------
 
 
-def _general_mic_distance(lattice, r1, r2):
-    """Brute-force MIC distance by searching all 27 images (NumPy).
+def _true_mic_distance(lattice, r1, r2):
+    """Exact minimum-image distance by bounded lattice enumeration (NumPy).
+
+    This is an independent oracle: unlike the code under test, it does not
+    assume that searching the 27 neighbouring cells is enough.
+
+    The search box is sized from a triangle-inequality bound:
+
+    1. Reduce the separation into one cell by subtracting a lattice vector.
+       The reduced vector ``r0`` is itself a candidate image, and its length
+       is bounded by the cell, not by how far apart the two points are.
+    2. Since ``r0`` is a candidate, the best image cannot be longer than
+       ``2 * |r0|``. The reciprocal basis converts that length bound into a
+       per-axis integer bound.
+    3. Enumerate that box. It is guaranteed to contain the global minimum.
 
     Returns:
-        Tuple of (displacement, distance).
+        Tuple of (displacement, distance) for the global minimum image.
     """
-    lattice = np.asarray(lattice)
-    r1, r2 = np.asarray(r1), np.asarray(r2)
-    shifts = []
-    for i in [-1, 0, 1]:
-        for j in [-1, 0, 1]:
-            for k in [-1, 0, 1]:
-                shifts.append(np.array([i, j, k]) @ lattice)
+    lattice = np.asarray(lattice, dtype=float)
+    diff = np.asarray(r1, dtype=float) - np.asarray(r2, dtype=float)
+    inv_lattice = np.linalg.inv(lattice)
+    reduced = diff - np.round(diff @ inv_lattice) @ lattice
+    # For a lattice vector v = m @ lattice, the i-th integer coefficient obeys
+    # |m_i| = |b_i . v| / (2 pi) <= |b_i| |v| / (2 pi). With |v| <= 2 |reduced|
+    # this bounds every coefficient, so the box holds the global minimum.
+    reciprocal = 2.0 * np.pi * inv_lattice.T
+    max_shift = np.ceil(
+        np.linalg.norm(reciprocal, axis=1) * np.linalg.norm(reduced) / np.pi
+    ).astype(int)
+    ranges = [np.arange(-m, m + 1) for m in max_shift]
+    shifts = np.stack(np.meshgrid(*ranges, indexing="ij"), axis=-1).reshape(
+        -1, lattice.shape[0]
+    )
+    images = reduced + shifts @ lattice
+    dists = np.linalg.norm(images, axis=-1)
+    best = int(np.argmin(dists))
+    return images[best], float(dists[best])
 
-    best_disp: np.ndarray | None = None
-    best_dist = float(np.inf)
-    for s in shifts:
-        diff = r1 - r2 + s
-        d = float(np.linalg.norm(diff))
-        if d < best_dist:
-            best_dist = d
-            best_disp = diff
-    return best_disp, best_dist
 
-
-def _compare_branch_against_general(lattice, pairs):
-    """Helper: build distance_fn from lattice, compare against brute-force."""
+def _assert_distance_fn_matches_oracle(lattice, pairs):
+    """Assert ``build_distance_fn`` matches the oracle on every pair."""
     dist_fn = pbc.build_distance_fn(lattice)
+    inv_lattice = np.linalg.inv(np.asarray(lattice, dtype=float))
     for r1, r2 in pairs:
-        r1_arr = jnp.array([r1])
-        r2_arr = jnp.array([r2])
-        disp, dist = dist_fn(r1_arr, r2_arr)
+        disp, dist = dist_fn(jnp.array([r1]), jnp.array([r2]))
+        _, expected_dist = _true_mic_distance(lattice, r1, r2)
 
-        expected_disp, expected_dist = _general_mic_distance(lattice, r1, r2)
         np.testing.assert_allclose(float(dist[0, 0]), expected_dist, atol=1e-5)
-        np.testing.assert_allclose(np.array(disp[0, 0]), expected_disp, atol=1e-5)
+        np.testing.assert_allclose(
+            float(jnp.linalg.norm(disp[0, 0])), expected_dist, atol=1e-5
+        )
+        # The returned displacement must differ from the raw separation by an
+        # exact lattice vector (ties may pick a different but equal-length image).
+        shift = np.asarray(disp[0, 0]) - (np.asarray(r1) - np.asarray(r2))
+        frac_shift = shift @ inv_lattice
+        np.testing.assert_allclose(frac_shift, np.round(frac_shift), atol=1e-6)
 
 
-def test_diagonal_branch_vs_general():
-    """Diagonal lattice optimized path matches brute-force."""
+def test_diagonal_branch():
+    """Diagonal lattice optimized path matches the exact oracle."""
     lattice = jnp.diag(jnp.array([8.0, 6.0, 10.0]))
     pairs = [
         ([1.0, 1.0, 1.0], [7.0, 5.0, 9.0]),  # wraps in all 3 axes
         ([0.0, 0.0, 0.0], [4.0, 3.0, 5.0]),  # exactly at half-cell
         ([2.0, 2.0, 2.0], [2.5, 2.5, 2.5]),  # small separation
     ]
-    _compare_branch_against_general(lattice, pairs)
+    _assert_distance_fn_matches_oracle(lattice, pairs)
 
 
-def test_orthogonal_branch_vs_general():
-    """Orthogonal (non-diagonal) lattice matches brute-force."""
+def test_orthogonal_branch():
+    """Orthogonal (non-diagonal) lattice matches the exact oracle."""
     # Permuted axes: orthogonal but not diagonal
     lattice = jnp.array([[0.0, 8.0, 0.0], [6.0, 0.0, 0.0], [0.0, 0.0, 10.0]])
     pairs = [
         ([1.0, 1.0, 1.0], [5.0, 7.0, 9.0]),
         ([0.0, 0.0, 0.0], [3.0, 4.0, 5.0]),
     ]
-    _compare_branch_against_general(lattice, pairs)
+    _assert_distance_fn_matches_oracle(lattice, pairs)
 
 
-def test_general_branch_vs_brute_force():
-    """Triclinic lattice general path matches brute-force."""
+def test_general_branch():
+    """Triclinic lattice general path matches the exact oracle."""
     lattice = jnp.array(
         [
             [8.0, 0.0, 0.0],
@@ -212,7 +264,74 @@ def test_general_branch_vs_brute_force():
         ([1.0, 1.0, 1.0], [3.0, 3.0, 3.0]),  # interior
         ([0.0, 0.0, 0.0], [4.0, 3.5, 4.5]),  # from origin
     ]
-    _compare_branch_against_general(lattice, pairs)
+    _assert_distance_fn_matches_oracle(lattice, pairs)
+
+
+@pytest.mark.parametrize(
+    "lattice",
+    [
+        pytest.param(
+            [[1.0, 3.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], id="shear-xy"
+        ),
+        pytest.param(
+            [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], id="shear-xz"
+        ),
+        pytest.param(
+            [[1.0, 2.0, 0.0], [0.0, 1.0, 2.0], [3.0, 0.0, 1.0]], id="combined"
+        ),
+    ],
+)
+def test_general_branch_skewed(lattice):
+    """Skewed triclinic cells need images far beyond the 27 neighbours."""
+    # Separations whose minimum image sits many cells away in the original basis.
+    pairs = [
+        ([-6.0, -6.0, 0.5], [0.0, 0.0, 0.0]),
+        ([-6.0, -5.0, 0.5], [0.0, 0.0, 0.0]),
+        ([-4.0, -3.0, 0.5], [0.0, 0.0, 0.0]),
+    ]
+    _assert_distance_fn_matches_oracle(lattice, pairs)
+
+
+@pytest.mark.parametrize(
+    "lattice",
+    [
+        pytest.param(jnp.diag(jnp.array([8.0, 6.0, 10.0])), id="diagonal"),
+        pytest.param(
+            jnp.array([[0.0, 8.0, 0.0], [6.0, 0.0, 0.0], [0.0, 0.0, 10.0]]),
+            id="orthogonal",
+        ),
+        pytest.param(
+            jnp.array([[8.0, 0.0, 0.0], [2.0, 7.0, 0.0], [1.0, 1.0, 9.0]]),
+            id="triclinic",
+        ),
+    ],
+)
+def test_pbc_distance_fn_batched_and_single_particle_shapes(lattice):
+    """PBC distance_fn preserves aligned batch axes and supports 1D single particles."""
+    dist_fn = pbc.build_distance_fn(lattice)
+
+    ra_batch = jnp.zeros((4, 3, 3))
+    rb_batch = jnp.ones((4, 5, 3))
+    disp_batch, r_batch = dist_fn(ra_batch, rb_batch)
+    assert disp_batch.shape == (4, 3, 5, 3)
+    assert r_batch.shape == (4, 3, 5)
+
+    ra_single = jnp.array([1.0, 2.0, 3.0])
+    rb_atoms = jnp.ones((5, 3))
+    disp_single_a, r_single_a = dist_fn(ra_single, rb_atoms)
+    assert disp_single_a.shape == (5, 3)
+    assert r_single_a.shape == (5,)
+
+    disp_single_b, r_single_b = dist_fn(rb_atoms, ra_single)
+    assert disp_single_b.shape == (5, 3)
+    assert r_single_b.shape == (5,)
+    np.testing.assert_allclose(disp_single_b, -disp_single_a, atol=1e-6)
+    np.testing.assert_allclose(r_single_b, r_single_a, atol=1e-6)
+
+    disp_both, r_both = dist_fn(ra_single, rb_atoms[0])
+    assert disp_both.shape == (3,)
+    assert r_both.shape == ()
+    np.testing.assert_allclose(r_both, r_single_a[0], atol=1e-6)
 
 
 # -- Sphere: projective spinor conversion ------------------------------

@@ -199,7 +199,9 @@ class FubiniStudyDistance(PerWalkerEstimator):
             )
 
         params = []
-        wrapper = {"params": params_template}
+        # These parameters become shard_map constants, so restore without the
+        # sampling parameters' explicit mesh sharding.
+        wrapper = {"params": jax.device_get(params_template)}
         for _, checkpoint_file in files_with_steps:
             _, restored = NumPyCheckpointManager.restore_from_file(
                 checkpoint_file, wrapper

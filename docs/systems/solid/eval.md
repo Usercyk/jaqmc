@@ -30,15 +30,18 @@ are identical to the [training system config](#solid-train-system).
 Must match the training run. The effective defaults and built-in module choices
 are identical to the [training wavefunction config](#solid-train-wf).
 
-## Reference (`reference.*`)
+## Reference (`reference`)
 
-The Hartree-Fock reference is the PySCF calculation JaQMC uses when it needs
-reference orbitals or related setup from that calculation. Itis recommended to
-set the values to match the reference configuration used during training.
+Optional path to a `reference.npz`. When omitted, evaluation checks
+`workflow.restore_path`, `workflow.source_path`, and `workflow.save_path`, in
+that order. If none contains the file, evaluation generates one with PySCF in
+`workflow.save_path`. An explicit `reference=` path used for training is also
+required for evaluation; evaluation does not search the output directory
+created by `jaqmc solid reference prepare`. <project:reference.md> describes
+the complete resolution order.
 
-```{eval-rst}
-.. config-defaults:: jaqmc.app.solid.config.base.SolidPretrainReferenceConfig
-   :prefix: reference
+```yaml
+reference: ./runs/lih_solid/hf/reference.npz
 ```
 
 ## Run Options (`run.*`)
@@ -87,13 +90,16 @@ root-level writer keys enable additional outputs.
 Energy estimator definitions match training, with additional evaluation-only
 estimators enabled through boolean flags.
 
-- `PotentialEnergy` and `TotalEnergy` are added automatically by the workflow
-  and are not configurable via config keys.
 - `estimators.enabled.energy` defaults to `true`.
 - `estimators.enabled.spin` defaults to `false`.
 - `estimators.enabled.density` defaults to `false`.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)
+
+Used when no atom in `system.pp` uses PH (`"ph"`). When any atom uses PH, the
+standalone Euclidean kinetic estimator is replaced by `PHEnergy` and kinetic
+evaluation is controlled by `estimators.energy.ph.kinetic_backend` (setting
+`estimators.energy.kinetic.*` on a PH run fails the unused-config check).
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.kinetic.EuclideanKinetic
@@ -109,9 +115,21 @@ Added automatically when `system.pp` selects an ECP for at least one atom.
    :prefix: estimators.energy.ecp
 ```
 
+### PH energy (`estimators.energy.ph.*`)
+
+Added automatically when `system.pp` selects PH (`"ph"`) for at least one
+atom. PH is the local pseudopotential family, parallel to the semi-local ECP
+family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
+all-electron atoms together in the same run.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.ph.PHEnergy
+   :prefix: estimators.energy.ph
+```
+
 ### Density (`estimators.density.*`)
 
-Electron density in fractional (lattice) coordinates. Converts Cartesian positions to fractional coordinates via the inverse lattice matrix, then histograms within $[0, 1)$.
+Electron density in fractional coordinates of the simulation (super)cell. Converts Cartesian positions to fractional coordinates via $\mathbf{f} = \mathbf{r}\,L^{-1} \bmod 1$, where each row of $L$ is a supercell lattice vector, then histograms within $[0, 1)$. The `a`, `b`, and `c` axes therefore run along the supercell lattice vectors, not the primitive-cell vectors.
 
 When enabled without overrides, the workflow wires one 3-D histogram with the
 `a`, `b`, and `c` fractional coordinates as the active axes. Each axis uses 50

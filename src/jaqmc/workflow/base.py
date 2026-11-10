@@ -110,6 +110,11 @@ class Workflow:
             if self.config.restore_path is not None
             else self.save_path
         )
+        self.restore_dir = (
+            self.restore_path.parent
+            if self.restore_path.is_file()
+            else self.restore_path
+        )
         self.signal_handler = GracefulKiller()
         self.run_context = RunContext(
             save_path=self.save_path,
@@ -229,7 +234,7 @@ def init_batched_data(
             ``data_init`` returns a plain :class:`~jaqmc.data.Data` instance.
 
     Returns:
-        Tuple of (sharded_batched_data, local_batched_data).
+        Sharded BatchedData instance.
 
     Raises:
         ValueError: If batch size is not divisible by number of processes.

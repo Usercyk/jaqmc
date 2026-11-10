@@ -38,7 +38,7 @@ def _samplers_compatible(from_stage: VMCWorkStage, to_stage: VMCWorkStage) -> bo
 
 
 class VMCWorkflow(Workflow):
-    """VMC workflow with pretrain -> train -> eval pipeline.
+    """VMC workflow with pretrain -> train pipeline.
 
     Subclass and set stages in ``__init__``::
 
@@ -89,16 +89,20 @@ class VMCWorkflow(Workflow):
             )
 
     def run(self) -> None:
-        """Execute the pretrain -> train -> eval pipeline.
+        """Execute the pretrain -> train pipeline.
 
         Override in subclasses to inject pre-run logic (e.g. SCF),
-        then call ``super().run(context, rngs)``.
+        then call ``super().run()``.
         """
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
         # different devices (across processes) happens later. So no fold_in here.
-        seed = self.config.seed if self.config.seed is not None else int(time.time())
-        rngs = multihost_utils.broadcast_one_to_all(jax.random.PRNGKey(seed))
+        seed = int(
+            multihost_utils.broadcast_one_to_all(
+                self.config.seed if self.config.seed is not None else int(time.time())
+            )
+        )
+        rngs = jax.random.key(seed)
         context = self.run_context
 
         rngs, data_rngs = jax.random.split(rngs)
@@ -147,7 +151,7 @@ class VMCWorkflow(Workflow):
             checkpoint_path: Path to checkpoint file or directory.
             stage: Name of the stage to restore (``"train"`` or
                 ``"pretrain"``).
-            rngs: Random key for ``create_state``. Defaults to ``PRNGKey(0)``.
+            rngs: Random key for ``create_state``. Defaults to ``jax.random.key(0)``.
 
         Returns:
             Restored state
@@ -156,7 +160,7 @@ class VMCWorkflow(Workflow):
             ValueError: Invalid stage name passed.
         """
         if rngs is None:
-            rngs = jax.random.PRNGKey(0)
+            rngs = jax.random.key(0)
         stage_obj: WorkStage
         if stage == "pretrain" and self.pretrain_stage is not None:
             stage_obj = self.pretrain_stage

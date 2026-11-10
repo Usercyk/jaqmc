@@ -11,7 +11,7 @@ from jaqmc.app.hall.config import HallSphereConfig
 from jaqmc.app.hall.data import HallData, data_init
 from jaqmc.app.hall.estimator.sphere.pair_correlation import SpherePairCorrelation
 
-KEY = jax.random.PRNGKey(0)
+KEY = jax.random.key(0)
 
 
 def test_weighted_sum_is_normalized():
@@ -26,7 +26,7 @@ def test_weighted_sum_is_normalized():
     state = est.init(HallData(electrons=jnp.zeros((nelec, 2))), KEY)
     for _ in range(n_steps):
         _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
-    g = state["histogram"][0] * 4 * bins / (jnp.pi * nelec**2 * n_walkers * n_steps)
+    g = state["histogram"] * 4 * bins / (jnp.pi * nelec**2 * n_walkers * n_steps)
     bin_centers = (jnp.arange(bins) + 0.5) * bin_width
     weighted_sum = jnp.sum(g * jnp.sin(bin_centers)) * bin_width
     expected = 2 * (nelec - 1) / nelec

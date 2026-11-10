@@ -61,6 +61,21 @@ class EvaluationWorkflow(Workflow):
     evaluation_stage: EvaluationWorkStage
     data_init: Callable
 
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        source_path_str = self.config.source_path
+        if source_path_str:
+            self.source_path = UPath(source_path_str)
+            if not self.source_path.is_absolute():
+                self.source_path = (UPath.cwd() / self.source_path).resolve()
+            self.source_dir = (
+                self.source_path.parent
+                if self.source_path.is_file()
+                else self.source_path
+            )
+        else:
+            self.source_dir = self.source_path = None
+
     def prepare(self, dry_run: bool = False) -> None:
         super().prepare(dry_run)
         if not hasattr(self, "data_init") or not callable(self.data_init):
@@ -90,8 +105,12 @@ class EvaluationWorkflow(Workflow):
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
         # different devices (across processes) happens later. So no fold_in here.
-        seed = self.config.seed if self.config.seed is not None else int(time.time())
-        rngs = multihost_utils.broadcast_one_to_all(jax.random.PRNGKey(seed))
+        seed = int(
+            multihost_utils.broadcast_one_to_all(
+                self.config.seed if self.config.seed is not None else int(time.time())
+            )
+        )
+        rngs = jax.random.key(seed)
         context = self.run_context
 
         rngs, data_rngs = jax.random.split(rngs)
@@ -102,12 +121,7 @@ class EvaluationWorkflow(Workflow):
         rngs, sub_rngs = jax.random.split(rngs)
         state = self.evaluation_stage.create_state(sub_rngs, batched_data=batched_data)
 
-        source_path_str = self.config.source_path
-        if source_path_str:
-            source_path = UPath(source_path_str)
-            if not source_path.is_absolute():
-                source_path = (UPath.cwd() / source_path).resolve()
-
+        if self.source_path is not None:
             # Load params, data, sampler_state from training checkpoint.
             # The dict wrapper matches VMCState checkpoint key paths because
             # DictKey("params") and GetAttrKey("params") both serialize to
@@ -119,9 +133,9 @@ class EvaluationWorkflow(Workflow):
             }
             # If source_path is a file, restore directly; otherwise glob for
             # train_ckpt_*.npz in the directory.
-            prefix = "" if source_path.is_file() else "train"
+            prefix = "" if self.source_path.is_file() else "train"
             restored = self.evaluation_stage.restore_checkpoint(
-                source_path, wrapper, prefix=prefix, strict=True
+                self.source_path, wrapper, prefix=prefix, strict=True
             )
             state = replace(
                 state,
@@ -145,7 +159,7 @@ class EvaluationWorkflow(Workflow):
             if isinstance(estimator, FubiniStudyDistance):
                 estimator.load_checkpoints(
                     state.params,
-                    default_path=source_path_str,
+                    default_path=self.config.source_path,
                 )
 
         rngs, sub_rngs = jax.random.split(rngs)

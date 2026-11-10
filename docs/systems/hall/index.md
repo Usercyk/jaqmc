@@ -48,13 +48,18 @@ for the full estimator guide, see
 
 The reported `total_energy` is complex-valued — the real part is the electronic variational energy $E_v$, and the imaginary component is a finite-sampling artifact whose expectation value vanishes. Hall training prints that real part as `energy` (`total_energy_real`). Comparing $E_v$ with literature values requires post-processing corrections for background charge and finite-size effects. See <project:energy-corrections.md> for the formulas.
 
-## Composite Fermions
+## Composite Fermions and Dressing
 
-The MHPO wavefunction supports composite fermion (CF) mean-field theory. Setting `wf.flux_per_elec` attaches flux quanta to each electron, reducing the effective monopole strength for the orbitals:
+The MHPO wavefunction supports composite-fermion flux attachment and learnable
+pair-factor dressings. By default `wf.dressing.degree` is `0` (bare MHPO
+orbitals). Raising the degree attaches that many flux quanta per electron and
+reduces the effective monopole strength for the orbitals. The dressing type is
+`laughlin` (fixed) or `full` (learnable); `full` additionally supports constant
+or backbone conditioning and orbital-/determinant-dependent parameters.
 
 ```bash
 # Composite fermion with 2 flux quanta per electron
-jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.flux_per_elec=2
+jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.dressing.degree=2
 ```
 
 ## Angular Momentum Penalties
@@ -79,10 +84,10 @@ jaqmc hall train system.lz_penalty=0.02 system.lz_center=0
 jaqmc hall train system.lz_penalty=0.02 system.l2_penalty=0.02
 ```
 
-Watch `Lz` against `system.lz_center` and `L_square` toward zero. The
-console `energy` column is the unpenalized variational energy
-(`total_energy_real`); the optimizer minimizes `penalized_loss`. See
-[Angular momentum](../../guide/estimators/angular-momentum.md).
+Watch `Lz` (`angular_momentum_z`) against `system.lz_center` and `L_square`
+(`angular_momentum_square`) toward zero. The console `energy` column is the
+unpenalized variational energy (`total_energy_real`); the optimizer minimizes
+`penalized_loss`. See [Angular momentum](../../guide/estimators/angular-momentum.md).
 
 ```{tip}
 Converge first **without** penalties, then resume with penalties on to
@@ -157,6 +162,9 @@ The hall app includes estimators for observables beyond energy. They are disable
 - Density — {class}`~jaqmc.estimator.density.SphericalDensity` records polar angle $\theta$ on the sphere; {class}`~jaqmc.estimator.density.TorusDensity` records a 2-D fractional-coordinate $(u,v)$ histogram on the torus.
 - Pair correlation — {class}`~jaqmc.app.hall.estimator.SpherePairCorrelation` records $g(\theta)$ from geodesic pair angles on the sphere; {class}`~jaqmc.app.hall.estimator.TorusPairCorrelation` records $g(\Delta u,\Delta v)$ on the centered fractional torus unit cell $[-1/2,1/2)^2$.
 - One-body reduced density matrix — {class}`~jaqmc.app.hall.estimator.SphereOneRDM` uses the LLL monopole-harmonic basis, while {class}`~jaqmc.app.hall.estimator.TorusOneRDM` uses the `n=0,1,2` torus Landau-level basis and reports each diagonal level block separately.
+
+Angular-momentum projection on the sphere is also optional. See
+[evaluation estimators](#hall-estimators) for keys and post-processing.
 
 Enable them via CLI or YAML:
 

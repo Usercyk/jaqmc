@@ -76,13 +76,16 @@ root-level writer keys enable additional outputs.
 Energy estimator definitions match training, with additional evaluation-only
 estimators enabled through boolean flags.
 
-- `total_energy` and the electron-nuclei potential are always added by the
-  workflow and are not configurable via config keys.
 - `estimators.enabled.energy` defaults to `true`.
 - `estimators.enabled.spin` defaults to `false`.
 - `estimators.enabled.density` defaults to `false`.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)
+
+Used when no atom in `system.pp` uses PH (`"ph"`). When any atom uses PH, the
+standalone Euclidean kinetic estimator is replaced by `PHEnergy` and kinetic
+evaluation is controlled by `estimators.energy.ph.kinetic_backend` (setting
+`estimators.energy.kinetic.*` on a PH run fails the unused-config check).
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.kinetic.EuclideanKinetic
