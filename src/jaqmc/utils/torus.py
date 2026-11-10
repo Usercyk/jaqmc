@@ -6,6 +6,56 @@ import math
 from jax import numpy as jnp
 
 
+def validate_shear(shear: tuple[float, float]) -> None:
+    """Check the two real components of a constant traceless shear.
+
+    Raises:
+        ValueError: If the shear does not contain two finite real numbers.
+    """
+    if (
+        not isinstance(shear, (tuple, list))
+        or len(shear) != 2
+        or any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            for value in shear
+        )
+    ):
+        raise ValueError("shear must contain two finite real numbers.")
+
+
+def shear_matrix(shear: jnp.ndarray | tuple[float, float]) -> jnp.ndarray:
+    r"""Return :math:`\exp[[s_1,s_2],[s_2,-s_1]]`, including at zero shear.
+
+    The result is symmetric, positive definite and has unit determinant.
+    This function supports JAX differentiation with respect to both components.
+
+    Args:
+        shear: Two real traceless-shear components.
+
+    Returns:
+        A ``(2, 2)`` unimodular matrix.
+    """
+    s = jnp.asarray(shear)
+    s = s.astype(jnp.result_type(s.dtype, 1.0))
+    squared = jnp.sum(s**2)
+    # h^2 = |s|^2 I. Series in |s|^2 avoid singular derivatives of |s| at zero.
+    # Keep the unused square-root branch finite as well for higher-order AD.
+    radius = jnp.sqrt(jnp.maximum(squared, 1e-4))
+    cosh = jnp.where(
+        squared < 1e-4,
+        1 + squared * (0.5 + squared * (1 / 24 + squared / 720)),
+        jnp.cosh(radius),
+    )
+    sinhc = jnp.where(
+        squared < 1e-4,
+        1 + squared * (1 / 6 + squared * (1 / 120 + squared / 5040)),
+        jnp.sinh(radius) / radius,
+    )
+    return cosh * jnp.eye(2) + sinhc * jnp.array([[s[0], s[1]], [s[1], -s[0]]])
+
+
 def get_torus_lattice(
     flux: int, tau: complex
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:

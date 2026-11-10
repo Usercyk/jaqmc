@@ -54,6 +54,7 @@ from .estimator.disk import (
     DiskWavefunctionScan,
 )
 from .estimator.disk.short_range import ShortRangeEstimator
+from .estimator.torus import TorusGraviton, TorusStress, TorusStructureFactor
 from .hamiltonian import SpherePotential, TorusPotential
 from .hamiltonian.disk import DiskPotential
 from .sampler.pinned_disk import PinnedDiskMCMCSampler
@@ -305,6 +306,7 @@ def make_torus_estimators(
             TorusKinetic(
                 flux=system_config.flux,
                 tau=system_config.tau,
+                mass_shear=system_config.mass_shear,
                 f_log_psi=wf.logpsi,
             ),
         )
@@ -315,9 +317,44 @@ def make_torus_estimators(
                 flux=system_config.flux,
                 tau=system_config.tau,
                 interaction_strength=system_config.interaction_strength,
+                interaction_shear=system_config.interaction_shear,
             ),
         )
         estimators["total"] = TotalEnergy()
+
+    if cfg.get("estimators.enabled.structure_factor", False):
+        estimators["structure_factor"] = cfg.get(
+            "estimators.structure_factor",
+            TorusStructureFactor(flux=system_config.flux, tau=system_config.tau),
+        )
+
+    stress_enabled = cfg.get("estimators.enabled.stress", False)
+    if cfg.get("estimators.enabled.graviton", False):
+        if always_enable_energy:
+            raise ValueError("The graviton subspace estimator is evaluation-only.")
+        estimators["graviton"] = cfg.get(
+            "estimators.graviton",
+            TorusGraviton(
+                flux=system_config.flux,
+                tau=system_config.tau,
+                mass_shear=system_config.mass_shear,
+                interaction_shear=system_config.interaction_shear,
+                interaction_strength=system_config.interaction_strength,
+                f_log_psi=wf.logpsi,
+            ),
+        )
+    elif stress_enabled:
+        estimators["stress"] = cfg.get(
+            "estimators.stress",
+            TorusStress(
+                flux=system_config.flux,
+                tau=system_config.tau,
+                mass_shear=system_config.mass_shear,
+                interaction_shear=system_config.interaction_shear,
+                interaction_strength=system_config.interaction_strength,
+                f_log_psi=wf.logpsi,
+            ),
+        )
 
     if cfg.get("estimators.enabled.density", False):
         estimators["density"] = cfg.get(

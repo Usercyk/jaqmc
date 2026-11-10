@@ -8,6 +8,11 @@ import numpy as np
 import pytest
 
 from jaqmc.app.hall import HallEvalWorkflow, HallTrainWorkflow
+from jaqmc.app.hall.estimator.torus import (
+    TorusGraviton,
+    TorusStress,
+    TorusStructureFactor,
+)
 from jaqmc.app.hall.hamiltonian import TorusPotential
 from jaqmc.estimator.angular_momentum import (
     SphericalAngularMomentum,
@@ -171,6 +176,45 @@ def test_torus_rejects_spherical_projection():
                 "estimators": {"enabled": {"angular_projection": True}},
             }
         )
+
+
+@pytest.mark.parametrize("observable", ["stress", "graviton"])
+def test_torus_geometric_estimators_share_system_metrics(observable):
+    enabled = {"stress": True, "structure_factor": True}
+    enabled[observable] = True
+    config = {
+        "system": {
+            "module": "jaqmc.app.hall.config:HallTorusConfig",
+            "flux": 6,
+            "tau": [0.3, 1.1],
+            "mass_shear": [0.2, -0.1],
+            "interaction_shear": [-0.1, 0.3],
+            "interaction_strength": 0.5,
+        },
+        "estimators": {"enabled": enabled},
+    }
+    estimators = _eval_estimators(config)
+    response = estimators[observable]
+    assert isinstance(
+        response, TorusGraviton if observable == "graviton" else TorusStress
+    )
+    assert isinstance(estimators["structure_factor"], TorusStructureFactor)
+    assert response.flux == estimators["kinetic"].flux == 6
+    assert response.tau == estimators["potential"].tau
+    assert response.tau == pytest.approx(0.3 + 1.1j)
+    assert response.mass_shear == estimators["kinetic"].mass_shear == (0.2, -0.1)
+    assert response.interaction_shear == estimators["potential"].interaction_shear
+    assert response.interaction_strength == estimators["potential"].interaction_strength
+
+
+def test_torus_graviton_is_evaluation_only():
+    config = {
+        "system": {"module": "jaqmc.app.hall.config:HallTorusConfig"},
+        "estimators": {"enabled": {"graviton": True}},
+    }
+    # Constructing the workflow validates configuration without starting it.
+    with pytest.raises(ValueError, match="evaluation-only"):
+        HallTrainWorkflow(ConfigManager(config))
 
 
 def test_fubini_eval_loads_workflow_source_checkpoints(tmp_path):

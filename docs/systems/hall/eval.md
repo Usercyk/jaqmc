@@ -10,6 +10,8 @@ overrides. For training config, see <project:train.md>.
 
 Disk observables and the dedicated overlap workflow are described in
 <project:disk.md>.
+Torus structure factors, independent metric shears, and quadrupole subspace
+spectra are described in <project:torus-graviton.md>.
 
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
 shared by all commands. See <project:../../guide/runtime-configuration.md>.

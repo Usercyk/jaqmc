@@ -9,6 +9,7 @@ from jax import numpy as jnp
 from serde.core import field as serde_field
 
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.torus import validate_shear
 
 __all__ = [
     "HallDiskConfig",
@@ -107,6 +108,10 @@ class HallTorusConfig(HallGeometryConfig):
     Args:
         tau: Modular parameter :math:`\tau=L_2/L_1` in the upper half-plane.
             In YAML, write it as ``[real, imaginary]``.
+        mass_shear: Two Cartesian shear components parameterizing the inverse
+            mass metric as ``exp([[s1, s2], [s2, -s1]])``.
+        interaction_shear: Two shear components parameterizing the covariant
+            real-space Coulomb metric in the same exponential convention.
     """
 
     tau: complex = serde_field(
@@ -114,8 +119,12 @@ class HallTorusConfig(HallGeometryConfig):
         serializer=_serialize_complex,
         deserializer=_deserialize_complex,
     )
+    mass_shear: tuple[float, float] = (0.0, 0.0)
+    interaction_shear: tuple[float, float] = (0.0, 0.0)
 
     def __post_init__(self) -> None:
+        validate_shear(self.mass_shear)
+        validate_shear(self.interaction_shear)
         if (
             not isinstance(self.flux, int)
             or isinstance(self.flux, bool)

@@ -156,7 +156,13 @@ class _EwaldSumBase:
         """
         raise NotImplementedError
 
-    def energy(self, coords: jnp.ndarray, charges: jnp.ndarray) -> jnp.ndarray:
+    def energy(
+        self,
+        coords: jnp.ndarray,
+        charges: jnp.ndarray,
+        *,
+        deformation: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
         r"""Total electrostatic energy of a periodic system of point charges.
 
         Treats all particles (electrons and ions) uniformly and sums the four
@@ -169,6 +175,13 @@ class _EwaldSumBase:
         Args:
             coords: Particle coordinates ``(N, dim)``.
             charges: Particle charges ``(N,)``.
+            deformation: Optional invertible Cartesian matrix applied to both
+                positions and lattice vectors. Uses fixed real and reciprocal
+                index lists and the reference Ewald separation parameter,
+                allowing geometry derivatives without rebuilding the sum.
+                Cutoffs must converge for the deformed cell as well. For
+                large deformations, rebuild the reference sum near the target
+                geometry so its reciprocal-weight pruning remains appropriate.
 
         Returns:
             Total electrostatic energy.
@@ -176,7 +189,6 @@ class _EwaldSumBase:
         # 1. Real-space sum over minimum-image displacements and lattice images.
         displacements, _ = self.dist(coords, coords)
         rvec = displacements[None, ...] + self.lattice_displacements[:, None, None, :]
-        r = jnp.linalg.norm(rvec, axis=-1)
         charge_prod = charges[:, None] * charges[None, :]
 
         # Mask out self-interaction (i=j in the central image n=0).
@@ -188,22 +200,33 @@ class _EwaldSumBase:
         mask = jnp.ones((n_imgs, n_parts, n_parts))
         mask = mask.at[center_image_idx].set(1.0 - jnp.eye(n_parts))
 
-        # Neutralize masked terms and guard against coincident particles so the
-        # masked-out infinities never turn into NaNs.
-        r_safe = jnp.where(mask < 0.5, 1.0, jnp.maximum(r, 1e-7))
+        gpoints, gweight = self.gpoints, self.gweight
+        ijconst = self.ijconst
+        if deformation is not None:
+            rvec = rvec @ deformation.T
+            deformed_gpoints = gpoints @ jnp.linalg.inv(deformation)
+            cell_measure = jnp.abs(jnp.linalg.det(self.latvec @ deformation.T))
+            gweight = self._reciprocal_weight(deformed_gpoints, cell_measure)
+            ijconst = self._background_const(cell_measure)
+
+        # Exclude the central self term before taking a norm. Masking norm(0)
+        # afterwards leaves undefined derivatives in coordinate Hessians.
+        r_squared = jnp.sum(rvec**2, axis=-1)
+        r_safe = jnp.sqrt(jnp.where(mask < 0.5, 1.0, jnp.maximum(r_squared, 1e-14)))
         pot_term = jax.lax.erfc(self.alpha * r_safe) / r_safe
         v_real = 0.5 * jnp.sum(charge_prod[None, :, :] * pot_term * mask)
 
         # 2. Reciprocal-space sum via the structure factor.
-        structure_factor = jnp.dot(jnp.exp(1j * (self.gpoints @ coords.T)), charges)
-        v_recip = jnp.dot(self.gweight, jnp.abs(structure_factor) ** 2)
+        # Reciprocal and position transformations cancel in the phase.
+        structure_factor = jnp.dot(jnp.exp(1j * (gpoints @ coords.T)), charges)
+        v_recip = jnp.dot(gweight, structure_factor.real**2 + structure_factor.imag**2)
 
         # 3. Self-energy correction (removes each charge's own Gaussian cloud).
         v_self = self.self_const_factor * jnp.sum(charges**2)
 
         # 4. Charged-system background correction.
         total_charge = jnp.sum(charges)
-        v_charged = 0.5 * self.ijconst * total_charge**2
+        v_charged = 0.5 * ijconst * total_charge**2
 
         return v_real + v_recip + v_self + v_charged
 

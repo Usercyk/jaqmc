@@ -29,6 +29,8 @@ The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 
 For Cartesian disk geometry, training, observables, and wavefunction overlap,
 see <project:disk.md>.
+Torus metrics, geometric stresses, and ground-state-generated quadrupole
+spectra are described in <project:torus-graviton.md>.
 
 ## How It Works
 
@@ -230,6 +232,7 @@ whether angular-momentum penalties were used.
 
 energy-corrections.md
 disk.md
+torus-graviton.md
 Training <train.md>
 Evaluation <eval.md>
 ```

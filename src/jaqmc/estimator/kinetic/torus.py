@@ -16,6 +16,7 @@ The reported energy is in units of :math:`\hbar\omega_c`.
 from collections.abc import Mapping
 from typing import Any
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
@@ -23,6 +24,7 @@ from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import grad_maybe_complex, hessian_maybe_complex
+from jaqmc.utils.torus import get_torus_lattice, shear_matrix, validate_shear
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
@@ -40,7 +42,9 @@ class TorusKinetic(PerWalkerEstimator):
         D_u=\partial_u+i\pi N_\phi v, \qquad
         D_v=\partial_v-i\pi N_\phi u,
 
-    and evaluates
+    and contracts their symmetric second derivatives with
+    :math:`M=L^{-1}g_m^{-1}L^{-T}`, where :math:`L` maps fractional to
+    Cartesian magnetic-length coordinates. At zero mass shear this reduces to
 
     .. math::
 
@@ -57,16 +61,20 @@ class TorusKinetic(PerWalkerEstimator):
     Args:
         flux: Positive number of magnetic flux quanta :math:`N_\phi`.
         tau: Torus modular parameter in the upper half-plane.
+        mass_shear: Cartesian inverse-mass shear components. The metric is
+            ``exp([[s1, s2], [s2, -s1]])`` independently of the cell shape.
         f_log_psi: Complex log-wavefunction evaluate function (runtime dep).
         data_field: Electron-coordinate field name (runtime dep).
     """
 
     flux: int = 1
     tau: complex = runtime_dep(default=1j)
+    mass_shear: tuple[float, float] = (0.0, 0.0)
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
     def __post_init__(self) -> None:
+        validate_shear(self.mass_shear)
         if (
             not isinstance(self.flux, int)
             or isinstance(self.flux, bool)
@@ -84,16 +92,33 @@ class TorusKinetic(PerWalkerEstimator):
             )
         self.tau = tau
 
-    def evaluate_single_walker(
-        self,
-        params: Params,
-        data: Data,
-        prev_walker_stats: Mapping[str, Any],
-        state: None,
-        rngs: PRNGKey,
-    ) -> tuple[dict[str, Any], None]:
-        del prev_walker_stats, rngs
+    def fractional_metric(self, shear: jnp.ndarray | None = None) -> jnp.ndarray:
+        """Return the inverse mass tensor in fractional coordinates.
 
+        Args:
+            shear: Optional inverse-mass shear overriding ``mass_shear``.
+
+        Returns:
+            The matrix ``L^-1 @ g^-1 @ L^-T`` in magnetic-length units.
+        """
+        l1, l2, _ = get_torus_lattice(self.flux, self.tau)
+        lattice = jnp.array([[l1, l2.real], [0.0, l2.imag]])
+        inverse = jnp.linalg.inv(lattice)
+        metric = shear_matrix(self.mass_shear if shear is None else shear)
+        return inverse @ metric @ inverse.T
+
+    def covariant_derivatives(
+        self, params: Params, data: Data
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        r"""Return :math:`D\Psi/\Psi` and its symmetric second-order tensor.
+
+        Returns:
+            Covariant gradients ``(N, 2)`` and symmetric covariant second
+            derivatives divided by the wavefunction, with shape ``(N, 2, 2)``.
+
+        Raises:
+            ValueError: If coordinates are not shaped ``(N, 2)``.
+        """
         electrons = data[self.data_field]
         if electrons.ndim != 2 or electrons.shape[-1] != 2:
             raise ValueError(
@@ -107,44 +132,42 @@ class TorusKinetic(PerWalkerEstimator):
         grad_log_psi = grad_maybe_complex(log_psi, argnums=1)(params, electrons)
         hessian_log_psi = hessian_maybe_complex(log_psi, argnums=1)(params, electrons)
 
-        grad_u = grad_log_psi[:, 0]
-        grad_v = grad_log_psi[:, 1]
-
         # Keep only the diagonal electron blocks: the one-body Hamiltonian has
         # no derivatives coupling coordinates of different electrons.
         particle_hessian = jnp.einsum("iaib->iab", hessian_log_psi)
-        hessian_uu = particle_hessian[:, 0, 0]
-        hessian_uv = particle_hessian[:, 0, 1]
-        hessian_vv = particle_hessian[:, 1, 1]
+        connection = (
+            jnp.pi * self.flux * jnp.stack([electrons[:, 1], -electrons[:, 0]], axis=-1)
+        )
+        covariant_grad = grad_log_psi + 1j * connection
+        tensor = particle_hessian + jnp.einsum(
+            "ia,ib->iab", covariant_grad, covariant_grad
+        )
+        return covariant_grad, tensor
 
-        tau_1 = self.tau.real
-        tau_2 = self.tau.imag
-        tau_abs_squared = tau_1**2 + tau_2**2
-
-        metric_laplacian = jnp.sum(
-            tau_abs_squared * hessian_uu - 2 * tau_1 * hessian_uv + hessian_vv
-        )
-        metric_grad_squared = jnp.sum(
-            tau_abs_squared * grad_u**2 - 2 * tau_1 * grad_u * grad_v + grad_v**2
-        )
-        second_order = -(metric_laplacian + metric_grad_squared) / (
-            4 * jnp.pi * self.flux * tau_2
-        )
-
-        u, v = electrons[:, 0], electrons[:, 1]
-        first_order = (
-            -0.5j
-            / tau_2
-            * jnp.sum(
-                (tau_abs_squared * v + tau_1 * u) * grad_u - (u + tau_1 * v) * grad_v
-            )
-        )
-        vector_potential_squared = (
-            jnp.pi
-            * self.flux
-            / (4 * tau_2)
-            * jnp.sum(u**2 + 2 * tau_1 * u * v + tau_abs_squared * v**2)
-        )
-
-        kinetic_energy = second_order + first_order + vector_potential_squared
+    def evaluate_single_walker(
+        self,
+        params: Params,
+        data: Data,
+        prev_walker_stats: Mapping[str, Any],
+        state: None,
+        rngs: PRNGKey,
+    ) -> tuple[dict[str, Any], None]:
+        del prev_walker_stats, rngs
+        _, tensor = self.covariant_derivatives(params, data)
+        kinetic_energy = -0.5 * jnp.einsum("ab,iab->", self.fractional_metric(), tensor)
         return {"energy:kinetic": kinetic_energy}, state
+
+    def stress(self, tensor: jnp.ndarray) -> jnp.ndarray:
+        """Return the two local mass-stress components from covariant derivatives.
+
+        Args:
+            tensor: Symmetric covariant second derivatives divided by the
+                wavefunction, as returned by ``covariant_derivatives``.
+
+        Returns:
+            The two derivatives of the local kinetic energy at ``mass_shear``.
+        """
+        derivatives = jax.jacfwd(self.fractional_metric)(
+            jnp.asarray(self.mass_shear, dtype=float)
+        )
+        return -0.5 * jnp.einsum("abc,iab->c", derivatives, tensor)
