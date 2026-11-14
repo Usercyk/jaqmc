@@ -181,6 +181,7 @@ class TorusGraviton(TorusStress):
             "stress:interaction": stress,
             "graviton:gram": jnp.outer(factors.conj(), factors),
             "graviton:hamiltonian": jnp.outer(factors.conj(), h_factors),
+            "graviton:hamiltonian_square": jnp.outer(h_factors.conj(), h_factors),
             "graviton:transitions": jnp.outer(factors.conj(), chiral),
             "graviton:unprojected_norm": jnp.abs(chiral) ** 2 / self.n_electrons,
         }, state
@@ -195,6 +196,7 @@ class TorusGraviton(TorusStress):
             np.asarray(stats["graviton:hamiltonian"]),
             np.asarray(stats["graviton:transitions"]),
             n_electrons=self.n_electrons,
+            hamiltonian_square=np.asarray(stats["graviton:hamiltonian_square"]),
             rcond=self.rcond,
         )
         weights = spectrum.weights.sum(axis=0)
@@ -207,6 +209,8 @@ class TorusGraviton(TorusStress):
                 "graviton:excitation_energies": spectrum.excitation_energies,
                 "graviton:weights": spectrum.weights,
                 "graviton:coefficients": spectrum.coefficients,
+                "graviton:energy_variances": spectrum.energy_variances,
+                "graviton:residual_norms": spectrum.residual_norms,
                 "graviton:gram_eigenvalues": spectrum.gram_eigenvalues,
                 "graviton:retained_gram_eigenvalues": retained,
                 "graviton:hermiticity_error": spectrum.hermiticity_error,

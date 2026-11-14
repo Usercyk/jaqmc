@@ -207,6 +207,8 @@ so subtraction noise in nearly constant operators does not create false modes.
 | `graviton:excitation_energies` | Ritz energies relative to the sampled reference energy |
 | `graviton:weights` | Per-electron discrete peak weights, columns **plus, minus** |
 | `graviton:coefficients` | Normalized Ritz eigenvectors in the original three-state basis |
+| `graviton:energy_variances` | Full-Hamiltonian energy variances per Ritz state, in $(\hbar\omega_c)^2$ |
+| `graviton:residual_norms` | Square roots of those variances, in $\hbar\omega_c$ |
 | `graviton:ground_energy` | Real reference Rayleigh energy |
 | `graviton:gram_eigenvalues` | Projected Gram eigenvalues before truncation |
 | `graviton:retained_gram_eigenvalues` | Eigenvalues retained with `rcond` |
@@ -244,6 +246,47 @@ ground-manifold control and separation from high-energy cyclotron response.
 Independent excited-state optimization and strict LLL projection are separate
 capabilities beyond this estimator.
 
+## Full-Hamiltonian Ritz residuals
+
+Each evaluation also saves the Hamiltonian-action overlap matrix
+
+$$
+B_{ab}=\left\langle h_a^*h_b\right\rangle_0,
+\qquad h_a=H\phi_a/\Psi_0,
+$$
+
+as `graviton:hamiltonian_square`. This is $\langle H\phi_a|H\phi_b\rangle$
+in the same normalization as $G$. It is not the square of the projected
+Hamiltonian matrix. The existing second-derivative Hamiltonian actions
+provide this statistic without additional coordinate derivatives.
+
+For a Ritz vector $c_n$, its total Rayleigh energy is
+$E_n=\texttt{ground\_energy}+\Delta_n$. The residual obeys
+
+$$
+\epsilon_n^2
+=\frac{\|(H-E_n)\sum_a c_{an}\phi_a\|^2}
+       {\|\sum_a c_{an}\phi_a\|^2}
+=\frac{c_n^\dagger Bc_n}{c_n^\dagger Gc_n}-E_n^2
+=\operatorname{Var}_{\psi_n}(H).
+$$
+
+`graviton:energy_variances` and `graviton:residual_norms` report
+$\epsilon_n^2$ and $\epsilon_n$. They include residual components along the
+removed approximate reference and outside the input basis. In contrast, the
+projected Ritz equation has zero residual by construction and cannot measure
+the quality of the trial subspace. `graviton:hermiticity_error` measures
+matrix symmetry rather than eigenstate quality.
+
+The host computes these contractions in double precision. Subtracting the
+second moment and squared energy limits the resolution near an exact
+eigenstate, especially for matrices accumulated in float32. Negative
+variances within roundoff tolerance are clipped to zero, while larger
+negative values raise an error. A reported zero within this resolution does
+not establish an exact eigenstate. Independent sampling or block resampling
+is needed to assess statistical uncertainty, and basis convergence remains
+necessary to identify physical modes.
+
 ## Analyze a saved digest
 
 The host-side solver can recompute a spectrum with a different Gram cutoff.
@@ -260,6 +303,7 @@ with np.load("runs/torus-graviton/evaluation_digest.npz") as digest:
         digest["graviton:hamiltonian"],
         digest["graviton:transitions"],
         n_electrons=6,
+        hamiltonian_square=digest["graviton:hamiltonian_square"],
         rcond=1e-6,
     )
 
@@ -267,7 +311,14 @@ energy_grid = np.linspace(0.0, 1.0, 1001)
 intensity = spectrum.broaden(energy_grid, eta=0.01)
 low_weights = spectrum.low_energy_weights(cutoff=0.5)
 chirality = spectrum.chirality(cutoff=0.5)
+residual_norms = spectrum.residual_norms
+energy_variances = spectrum.energy_variances
 ```
+
+Older digests without `graviton:hamiltonian_square` can still be analyzed by
+omitting that argument. Their residual norms and energy variances are
+unavailable and returned as `None`. A new evaluation of the checkpoint
+collects the missing matrix without retraining.
 
 `broaden` applies a Lorentzian display half-width, which is not a predicted
 lifetime. `low_energy_weights` sums unbroadened peaks with

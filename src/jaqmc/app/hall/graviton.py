@@ -27,6 +27,8 @@ class GravitonSpectrum:
         hermiticity_error: Relative anti-Hermitian norms of the input Gram and
             Hamiltonian matrices, before symmetrizing, in that order.
         ground_energy: Energy subtracted from the Ritz eigenvalues.
+        energy_variances: Full-Hamiltonian energy variances per Ritz state,
+            or ``None`` when Hamiltonian-action overlaps were not supplied.
     """
 
     excitation_energies: np.ndarray
@@ -37,6 +39,14 @@ class GravitonSpectrum:
     reference_gram_eigenvalues: np.ndarray
     hermiticity_error: np.ndarray
     ground_energy: float
+    energy_variances: np.ndarray | None = None
+
+    @property
+    def residual_norms(self) -> np.ndarray | None:
+        """Full-Hamiltonian residual norms, or ``None`` without second moments."""
+        if self.energy_variances is None:
+            return None
+        return np.sqrt(self.energy_variances)
 
     def broaden(self, energies: np.ndarray, eta: float) -> np.ndarray:
         """Evaluate Lorentzian spectra, with an artificial display width.
@@ -147,6 +157,7 @@ def solve_graviton_subspace(
     n_electrons: int,
     ground_indices: tuple[int, ...] = (0,),
     ground_energy: float | None = None,
+    hamiltonian_square: np.ndarray | None = None,
     rcond: float = 1e-6,
 ) -> GravitonSpectrum:
     r"""Project reference states out and solve :math:`Hc=EGc` on the complement.
@@ -162,6 +173,10 @@ def solve_graviton_subspace(
         ground_energy: Reference energy. Defaults to ``H[0,0]/G[0,0]`` for a
             single reference, using its actual index. Required for multiple
             references, including split or approximate ground manifolds.
+        hamiltonian_square: Optional full-space action overlaps
+            ``<H phi_a|H phi_b>`` with shape ``(B, B)``. These provide energy
+            variances and residual norms, including components along the
+            removed reference space and outside the full input basis.
         rcond: Relative Gram eigenvalue cutoff for both projection and solving.
             The unprojected trial-block norm also bounds the cutoff scale to
             avoid resolving cancellation noise in nearly constant operators.
@@ -173,14 +188,30 @@ def solve_graviton_subspace(
 
     Raises:
         ValueError: If inputs are inconsistent, nonfinite, have an indefinite
-            overlap, or do not contain a nonzero reference state.
+            overlap, yield significantly negative energy variances, or do not
+            contain a nonzero reference state.
     """
+    moment_precision = max(
+        (
+            np.finfo(np.asarray(matrix).real.dtype).eps
+            for matrix in (gram, hamiltonian, hamiltonian_square)
+            if matrix is not None
+            and np.issubdtype(np.asarray(matrix).dtype, np.inexact)
+        ),
+        default=np.finfo(float).eps,
+    )
     gram = np.asarray(gram, dtype=np.complex128)
     hamiltonian = np.asarray(hamiltonian, dtype=np.complex128)
     transitions = np.asarray(transitions, dtype=np.complex128)
     _validate_subspace_inputs(
         gram, hamiltonian, transitions, n_electrons, ground_indices, rcond
     )
+    if hamiltonian_square is not None:
+        hamiltonian_square = np.asarray(hamiltonian_square, dtype=np.complex128)
+        if hamiltonian_square.shape != gram.shape:
+            raise ValueError("hamiltonian_square must match the basis shape.")
+        if not np.all(np.isfinite(hamiltonian_square)):
+            raise ValueError("hamiltonian_square must contain finite entries.")
     size = len(gram)
     hermiticity_error = np.array(
         [
@@ -225,6 +256,22 @@ def solve_graviton_subspace(
     )
     coefficients = basis @ vectors
     amplitudes = coefficients.conj().T @ transitions
+    energy_variances = None
+    if hamiltonian_square is not None:
+        norms = np.einsum("an,ab,bn->n", coefficients.conj(), gram, coefficients).real
+        second_moments = (
+            np.einsum(
+                "an,ab,bn->n", coefficients.conj(), hamiltonian_square, coefficients
+            ).real
+            / norms
+        )
+        energy_variances = second_moments - energies**2
+        # Moments can cancel near an exact eigenstate. Only roundoff-sized
+        # negative values are clipped, using the precision of the input data.
+        tolerance = 32 * moment_precision * (np.abs(second_moments) + energies**2)
+        if np.any(energy_variances < -tolerance):
+            raise ValueError("Second moments yield negative Ritz energy variances.")
+        energy_variances = np.maximum(energy_variances, 0.0)
     return GravitonSpectrum(
         excitation_energies=energies - ground_energy,
         weights=np.abs(amplitudes) ** 2 / n_electrons,
@@ -234,4 +281,5 @@ def solve_graviton_subspace(
         reference_gram_eigenvalues=reference_eigenvalues,
         hermiticity_error=hermiticity_error,
         ground_energy=ground_energy,
+        energy_variances=energy_variances,
     )

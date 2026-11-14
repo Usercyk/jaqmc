@@ -157,6 +157,12 @@ def test_product_subspace_action_matches_direct_wavefunction_derivatives():
     action /= jnp.exp(logpsi({}, data))
     np.testing.assert_allclose(stats["graviton:hamiltonian"][0], action, rtol=2e-5)
     np.testing.assert_allclose(
+        stats["graviton:hamiltonian_square"],
+        jnp.outer(action.conj(), action),
+        rtol=5e-5,
+        atol=2e-7,
+    )
+    np.testing.assert_allclose(
         stats["graviton:unprojected_norm"][0], stats["graviton:unprojected_norm"][1]
     )
     np.testing.assert_allclose(
