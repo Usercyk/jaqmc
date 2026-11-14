@@ -10,10 +10,7 @@ import numpy as np
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
-from jaqmc.app.hall.wavefunction.torus.features import (
-    center_of_mass_features,
-    torus_features,
-)
+from jaqmc.app.hall.wavefunction.torus.features import torus_features
 from jaqmc.app.hall.wavefunction.torus.sigma_mhpo import (
     TorusSigmaMHPO,
     torus_sigma_envelope,
@@ -22,15 +19,22 @@ from jaqmc.utils.torus import get_torus_lattice
 from jaqmc.utils.wiring import wire
 
 
-def test_torus_features_include_periodic_center_of_mass_by_default():
+def test_torus_features_are_periodic_one_electron_embeddings():
     electrons = jnp.array([[0.13, 0.27], [0.41, 0.59]])
 
     features = torus_features(electrons)
 
-    assert features.shape == (2, 8)
+    assert features.shape == (2, 4)
     np.testing.assert_allclose(
-        features[:, 4:],
-        center_of_mass_features(electrons),
+        features,
+        np.column_stack(
+            [
+                np.cos(2 * np.pi * electrons[:, 0]),
+                np.sin(2 * np.pi * electrons[:, 0]),
+                np.cos(2 * np.pi * electrons[:, 1]),
+                np.sin(2 * np.pi * electrons[:, 1]),
+            ]
+        ),
         rtol=1e-6,
         atol=1e-6,
     )
@@ -43,6 +47,9 @@ def test_torus_features_include_periodic_center_of_mass_by_default():
             rtol=1e-6,
             atol=1e-6,
         )
+
+    displaced = electrons.at[0].add(jnp.array([0.07, -0.11]))
+    np.testing.assert_array_equal(torus_features(displaced)[1], features[1])
 
 
 def test_sigma_envelope_uses_the_standard_symmetric_gauge_origin():

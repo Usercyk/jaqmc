@@ -43,6 +43,13 @@ run:
 The wavefunction architecture, flux, cell shape, electron counts, and
 Hamiltonian settings must match the source calculation. Additional `wf.*`
 settings from that calculation belong in the evaluation configuration as well.
+
+Both torus MHPO variants embed each electron's fractional coordinates $(u,v)$
+as $(\cos 2\pi u,\sin 2\pi u,\cos 2\pi v,\sin 2\pi v)$. The backbone
+appends a spin feature, so its input projection has five rows. Checkpoints
+trained with the former center-of-mass inputs have nine rows and require
+their original wavefunction implementation for evaluation.
+
 Configuration inspection resolves the workflow without sampling or training:
 
 ```bash

@@ -100,9 +100,9 @@ def test_torus_mhpo_is_antisymmetric():
     data = HallData(electrons=electrons)
     params = wavefunction.init_params(data, jax.random.PRNGKey(0))
 
-    # Eight torus features plus the spin encoding added by PsiformerBackbone.
+    # Four torus features plus the spin encoding added by PsiformerBackbone.
     input_kernel = cast(Any, params)["params"]["backbone_layer"]["Dense_0"]["kernel"]
-    assert input_kernel.shape[0] == 9
+    assert input_kernel.shape[0] == 5
 
     logpsi = wavefunction.evaluate(params, data)["logpsi"]
     swapped_data = HallData(electrons=electrons[::-1])
