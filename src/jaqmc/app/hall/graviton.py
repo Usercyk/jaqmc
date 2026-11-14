@@ -21,7 +21,8 @@ class GravitonSpectrum:
         excitation_energies: Ritz energies relative to the reference energy.
         weights: Nonnegative peak weights with shape ``(n_modes, 2)``.
         coefficients: Eigenvectors in the original input basis.
-        gram_eigenvalues: All projected Gram eigenvalues before truncation.
+        gram_eigenvalues: All projected Gram eigenvalues before truncation,
+            after normalizing trial columns by their unprojected norms.
         retained_gram_eigenvalues: Projected Gram eigenvalues kept by the solver.
         reference_gram_eigenvalues: Eigenvalues of the reference overlap block.
         hermiticity_error: Relative anti-Hermitian norms of the input Gram and
@@ -178,8 +179,9 @@ def solve_graviton_subspace(
             variances and residual norms, including components along the
             removed reference space and outside the full input basis.
         rcond: Relative Gram eigenvalue cutoff for both projection and solving.
-            The unprojected trial-block norm also bounds the cutoff scale to
-            avoid resolving cancellation noise in nearly constant operators.
+            Trial columns are equilibrated by their unprojected norms. The
+            equilibrated unprojected trial-block norm also bounds the cutoff
+            scale to avoid resolving cancellation noise in constant operators.
 
     Returns:
         Excitation energies, channel weights, and numerical diagnostics. Empty
@@ -242,12 +244,17 @@ def solve_graviton_subspace(
         @ reference_whitener.conj().T
         @ gram[np.ix_(reference, trial)]
     )
+    trial_gram = gram[np.ix_(trial, trial)]
+    trial_norms = np.sqrt(np.maximum(trial_gram.diagonal().real, 0.0))
+    trial_norms = np.where(trial_norms > 0, trial_norms, 1.0)
+    projection /= trial_norms[None, :]
+    equilibrated_gram = trial_gram / trial_norms[:, None] / trial_norms[None, :]
     projected_gram = projection.conj().T @ gram @ projection
     projected_gram = (projected_gram + projected_gram.conj().T) / 2
     whitener, eigenvalues, retained = _whitener(
         projected_gram,
         rcond,
-        scale_floor=float(np.linalg.norm(gram[np.ix_(trial, trial)])),
+        scale_floor=float(np.linalg.norm(equilibrated_gram)),
     )
     basis = projection @ whitener
     effective_hamiltonian = basis.conj().T @ hamiltonian @ basis
@@ -266,9 +273,28 @@ def solve_graviton_subspace(
             / norms
         )
         energy_variances = second_moments - energies**2
-        # Moments can cancel near an exact eigenstate. Only roundoff-sized
-        # negative values are clipped, using the precision of the input data.
-        tolerance = 32 * moment_precision * (np.abs(second_moments) + energies**2)
+        # Bound roundoff before cancellation in the nonorthogonal contractions,
+        # including zero-energy states whose second moment also cancels to zero.
+        absolute_coefficients = np.abs(coefficients)
+        moment_scale = (
+            np.einsum(
+                "an,ab,bn->n",
+                absolute_coefficients,
+                np.abs(hamiltonian_square),
+                absolute_coefficients,
+            )
+            / norms
+        )
+        norm_scale = (
+            np.einsum(
+                "an,ab,bn->n",
+                absolute_coefficients,
+                np.abs(gram),
+                absolute_coefficients,
+            )
+            / norms
+        )
+        tolerance = 32 * moment_precision * (moment_scale + energies**2 * norm_scale)
         if np.any(energy_variances < -tolerance):
             raise ValueError("Second moments yield negative Ritz energy variances.")
         energy_variances = np.maximum(energy_variances, 0.0)

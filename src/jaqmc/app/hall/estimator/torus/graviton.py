@@ -3,7 +3,8 @@
 
 """Torus shear stresses and ground-state-generated quadrupole subspaces."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any
 
 import jax
@@ -97,28 +98,49 @@ class TorusGraviton(TorusStress):
     Args:
         rcond: Relative Gram cutoff used by host-side digest diagonalization.
         trial_radius: Positive pair-suppression radius in magnetic lengths.
-            Trial factors are ``(1, R*T1, R*T2)`` with a smooth periodic
-            factor ``R`` vanishing quadratically at pair coincidences. This
-            avoids the divergent kinetic form of bare Coulomb-stress trial
-            states with linear fermionic zeros. The physical Hamiltonian and
-            transition operators are unchanged.
+            The smooth periodic factor ``R`` vanishes quadratically at pair
+            coincidences. The physical Hamiltonian and transition operators
+            are unchanged.
+        krylov_order: Number of two-direction Hamiltonian Krylov blocks,
+            from one to three. Three blocks provide at most six Ritz peaks.
+        trial_power: Exponent of ``R`` in the seed states ``R**p * Ta * Psi0``.
+            Defaults to ``krylov_order`` and must be at least that large so
+            the Hamiltonian actions needed for residuals remain integrable
+            at linear fermionic pair zeros. A fixed value across orders
+            provides nested Krylov spaces for convergence comparisons.
 
     Notes:
         This estimator projects out the sampled reference state only. Other
         torus ground partners require additional matrix elements and the
-        multi-reference ``solve_graviton_subspace`` interface. The two trial
-        states yield at most two Ritz peaks. Reported moments describe that
-        retained subspace, not a converged full spectrum.
+        multi-reference ``solve_graviton_subspace`` interface. The basis is
+        ``Psi0`` followed by ``H**k (R**p * Ta * Psi0)`` in block order, with
+        ``a=1,2`` and ``k=0,...,krylov_order-1``. Reported moments describe
+        that retained subspace, not a converged full spectrum. Higher orders
+        require up to ``2*krylov_order`` coordinate derivatives.
     """
 
     rcond: float = 1e-6
     trial_radius: float = 0.5
+    krylov_order: int = 1
+    trial_power: int | None = None
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.rcond) or not 0 < self.rcond < 1:
             raise ValueError("rcond must lie strictly between zero and one.")
         if not np.isfinite(self.trial_radius) or self.trial_radius <= 0:
             raise ValueError("trial_radius must be finite and positive.")
+        if (
+            not isinstance(self.krylov_order, int)
+            or isinstance(self.krylov_order, bool)
+            or not 1 <= self.krylov_order <= 3
+        ):
+            raise ValueError("krylov_order must be an integer from one to three.")
+        if self.trial_power is not None and (
+            not isinstance(self.trial_power, int)
+            or isinstance(self.trial_power, bool)
+            or self.trial_power < self.krylov_order
+        ):
+            raise ValueError("trial_power must be an integer >= krylov_order.")
 
     def init(self, data: Data, rngs: PRNGKey) -> None:
         super().init(data, rngs)
@@ -128,7 +150,7 @@ class TorusGraviton(TorusStress):
         return None
 
     def trial_factors(self, electrons: jnp.ndarray) -> jnp.ndarray:
-        r"""Return :math:`(1,R T_1^V,R T_2^V)` with periodic pair suppression.
+        r"""Return seed factors :math:`(1,R^p T_1^V,R^p T_2^V)`.
 
         The embedding ``(exp(2*pi*i*delta)-1) @ lattice / (2*pi)`` has squared
         norm equal to the Cartesian pair distance squared near coincidence,
@@ -140,7 +162,8 @@ class TorusGraviton(TorusStress):
             electrons: Fractional electron coordinates, shape ``(N, 2)``.
 
         Returns:
-            Three real factors multiplying the reference wavefunction.
+            Reference and two real seed factors. Higher Krylov blocks are
+            constructed by applying the Hamiltonian to the seed wavefunctions.
         """
         i, j = jnp.triu_indices(len(electrons), k=1)
         delta = electrons[i] - electrons[j]
@@ -150,7 +173,49 @@ class TorusGraviton(TorusStress):
         squared = jnp.sum(embedding.real**2 + embedding.imag**2, axis=-1)
         suppression = jnp.prod(-jnp.expm1(-squared / (2 * self.trial_radius**2)))
         stress = self.potential.stress(electrons)
-        return jnp.concatenate([jnp.ones(1, dtype=stress.dtype), suppression * stress])
+        power = self.krylov_order if self.trial_power is None else self.trial_power
+        return jnp.concatenate(
+            [jnp.ones(1, dtype=stress.dtype), suppression**power * stress]
+        )
+
+    def _hamiltonian_action(
+        self,
+        wavefunctions: Callable[[jnp.ndarray], jnp.ndarray],
+        electrons: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Apply the covariant Hamiltonian using directional second derivatives.
+
+        Returns:
+            Hamiltonian actions on the supplied wavefunction block.
+        """
+        values = wavefunctions(electrons)
+        metric_root = jnp.linalg.cholesky(self.kinetic.fractional_metric()).astype(
+            electrons.dtype
+        )
+        directions = (
+            jnp.eye(electrons.size, dtype=electrons.dtype).reshape(
+                electrons.size, *electrons.shape
+            )
+            @ metric_root.T
+        )
+        connection = (
+            jnp.pi * self.flux * jnp.stack([electrons[:, 1], -electrons[:, 0]], -1)
+        )
+
+        def kinetic_term(index: int, total: jnp.ndarray) -> jnp.ndarray:
+            direction = directions[index]
+
+            def derivative(x: jnp.ndarray) -> jnp.ndarray:
+                return jax.jvp(wavefunctions, (x,), (direction,))[1]
+
+            first, second = jax.jvp(derivative, (electrons,), (direction,))
+            gauge = jnp.sum(direction * connection)
+            # The directional derivative of direction.A vanishes in symmetric
+            # gauge. Directional contractions avoid full high-order tensors.
+            return total - 0.5 * (second + 2j * gauge * first - gauge**2 * values)
+
+        potential = self.potential.potential(electrons) * values
+        return jax.lax.fori_loop(0, electrons.size, kinetic_term, potential)
 
     def evaluate_single_walker(
         self,
@@ -162,19 +227,25 @@ class TorusGraviton(TorusStress):
     ) -> tuple[dict[str, Any], None]:
         del prev_walker_stats, rngs
         electrons = data[self.data_field]
-        covariant_grad, tensor = self.kinetic.covariant_derivatives(params, data)
+        _, tensor = self.kinetic.covariant_derivatives(params, data)
         metric = self.kinetic.fractional_metric()
         local_energy = -0.5 * jnp.einsum("ab,iab->", metric, tensor)
         local_energy += self.potential.potential(electrons)
 
         stress = self.potential.stress(electrons)
-        factors = self.trial_factors(electrons)
-        factor_grad = jax.jacfwd(self.trial_factors)(electrons)
-        factor_hessian = jax.jacfwd(jax.jacfwd(self.trial_factors))(electrons)
-        diagonal_hessian = jnp.einsum("aibic->aibc", factor_hessian)
-        correction = -0.5 * jnp.einsum("bc,aibc->a", metric, diagonal_hessian)
-        correction -= jnp.einsum("bc,ib,aic->a", metric, covariant_grad, factor_grad)
-        h_factors = factors * local_energy + correction
+        anchor = jax.lax.stop_gradient(self.f_log_psi(params, data))
+
+        def seeds(x: jnp.ndarray) -> jnp.ndarray:
+            log_psi = self.f_log_psi(params, data.merge({self.data_field: x}))
+            return jnp.exp(log_psi - anchor + 0j) * self.trial_factors(x)[1:]
+
+        wavefunctions = seeds
+        actions = [wavefunctions(electrons)]
+        for _ in range(self.krylov_order):
+            wavefunctions = partial(self._hamiltonian_action, wavefunctions)
+            actions.append(wavefunctions(electrons))
+        factors = jnp.concatenate([jnp.ones(1), *actions[:-1]])
+        h_factors = jnp.concatenate([jnp.atleast_1d(local_energy), *actions[1:]])
         chiral = jnp.array([stress[0] + 1j * stress[1], stress[0] - 1j * stress[1]])
         return {
             "stress:mass": self.kinetic.stress(tensor),
@@ -190,7 +261,7 @@ class TorusGraviton(TorusStress):
         self, batched_stats: Mapping[str, Any], state: None
     ) -> dict[str, Any]:
         del state
-        stats = jax.tree.map(lambda x: jnp.mean(x, axis=0), batched_stats)
+        stats = jax.tree.map(lambda x: np.mean(np.asarray(x), axis=0), batched_stats)
         spectrum = solve_graviton_subspace(
             np.asarray(stats["graviton:gram"]),
             np.asarray(stats["graviton:hamiltonian"]),
@@ -219,6 +290,10 @@ class TorusGraviton(TorusStress):
                 "graviton:subspace_first_moment": first_moment,
                 "graviton:subspace_centroid": centroid,
                 "graviton:n_ground_references": 1,
+                "graviton:krylov_order": self.krylov_order,
+                "graviton:trial_power": (
+                    self.krylov_order if self.trial_power is None else self.trial_power
+                ),
             }
         )
         return stats

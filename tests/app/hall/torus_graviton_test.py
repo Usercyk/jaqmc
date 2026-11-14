@@ -200,6 +200,70 @@ def test_evaluation_digest_reports_per_electron_peaks_and_subspace_moments():
     assert digest["graviton:n_ground_references"] == 1
 
 
+@pytest.mark.parametrize("rescale_columns", [False, True])
+def test_three_krylov_blocks_recover_six_exact_peaks_and_residuals(
+    rescale_columns: bool,
+) -> None:
+    estimator = TorusGraviton(
+        krylov_order=3,
+        ewald_gmax=1,
+        f_log_psi=lambda p, d: -jnp.sum(d.electrons**2),
+    )
+    estimator.init(
+        HallData(electrons=jnp.array([[0.1, 0.2], [0.4, 0.6]])), jax.random.key(0)
+    )
+    energies = np.arange(-3.0, 4.0)
+    operator = np.diag(energies)
+    seeds = np.array([[0.3, 0.2j], [1, 0], [0, 1], [1, 0], [0, 1], [1, 0], [0, 1]])
+    basis = np.column_stack(
+        (np.eye(7)[:, 0], seeds, operator @ seeds, operator @ operator @ seeds)
+    )
+    if rescale_columns:
+        basis *= np.array([1, 1e-3, 1e3, 0.1, 10, 0.01, 100])
+    sources = np.column_stack((np.arange(1, 8), 1j * np.arange(7, 0, -1)))
+    actions = operator @ basis
+    matrices = {
+        "graviton:gram": basis.conj().T @ basis,
+        "graviton:hamiltonian": basis.conj().T @ actions,
+        "graviton:hamiltonian_square": actions.conj().T @ actions,
+        "graviton:transitions": basis.conj().T @ sources,
+    }
+    digest = estimator.finalize_stats(
+        {key: np.stack([value, value]) for key, value in matrices.items()}, None
+    )
+    np.testing.assert_allclose(digest["graviton:excitation_energies"], np.arange(1, 7))
+    np.testing.assert_allclose(digest["graviton:weights"], np.abs(sources[1:]) ** 2 / 2)
+    np.testing.assert_allclose(digest["graviton:energy_variances"], 0, atol=1e-12)
+    np.testing.assert_allclose(digest["graviton:residual_norms"], 0, atol=1e-6)
+    coefficients = digest["graviton:coefficients"]
+    np.testing.assert_allclose(
+        coefficients.conj().T @ matrices["graviton:gram"] @ coefficients,
+        np.eye(6),
+        atol=1e-12,
+    )
+    assert digest["graviton:krylov_order"] == 3
+    assert digest["graviton:trial_power"] == 3
+
+
+@pytest.mark.parametrize(
+    "krylov_order,trial_power,match",
+    [
+        (0, None, "krylov_order"),
+        (4, None, "krylov_order"),
+        (True, None, "krylov_order"),
+        (3, 2, "trial_power"),
+        (1, True, "trial_power"),
+    ],
+)
+def test_rejects_invalid_krylov_and_pair_regularization(
+    krylov_order: int,
+    trial_power: int | None,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        TorusGraviton(krylov_order=krylov_order, trial_power=trial_power)
+
+
 @pytest.mark.parametrize(
     "gram,kwargs,match",
     [

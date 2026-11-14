@@ -13,9 +13,66 @@ from jaqmc.app.hall.data import HallData
 from jaqmc.app.hall.estimator.torus import TorusGraviton
 from jaqmc.app.hall.hamiltonian.torus import TorusPotential
 from jaqmc.app.hall.wavefunction.torus.mhpo import torus_envelope
+from jaqmc.array_types import Params
 from jaqmc.estimator.ewald import EwaldSum2D
 from jaqmc.estimator.kinetic.torus import TorusKinetic
 from jaqmc.utils.torus import get_torus_lattice, shear_matrix
+
+
+@pytest.mark.requires_x64
+@pytest.mark.parametrize("coordinate_dtype", [jnp.float32, jnp.float64])
+def test_three_krylov_blocks_match_exact_landau_polynomial_actions(
+    monkeypatch: pytest.MonkeyPatch,
+    coordinate_dtype: type[jnp.floating],
+) -> None:
+    flux = 6
+    l1, _, _ = get_torus_lattice(flux, 1j)
+    data = HallData(electrons=jnp.array([[0.12, 0.23]], dtype=coordinate_dtype))
+
+    def logpsi(params: Params, data: HallData) -> jnp.ndarray:
+        del params
+        return -(l1**2) * jnp.sum(data.electrons**2) / 4
+
+    def seed_factors(x: jnp.ndarray) -> jnp.ndarray:
+        zbar = l1 * (x[0, 0] - 1j * x[0, 1])
+        return jnp.array([1, zbar + zbar**2 + zbar**3, zbar**4 + zbar**5 + zbar**6])
+
+    estimator = TorusGraviton(
+        flux=flux,
+        interaction_strength=0,
+        krylov_order=3,
+        ewald_gmax=1,
+        f_log_psi=logpsi,
+    )
+    estimator.init(data, jax.random.key(0))
+    monkeypatch.setattr(estimator, "trial_factors", seed_factors)
+    stats, _ = jax.jit(estimator.evaluate_single_walker)(
+        {}, data, {}, None, jax.random.key(0)
+    )
+    # zbar**n times the Gaussian has exact energy n + 1/2. This checks all
+    # three H applications without deriving the oracle through autodiff.
+    zbar = complex(l1 * (data.electrons[0, 0] - 1j * data.electrons[0, 1]))
+    blocks = [
+        np.array(
+            [
+                sum((n + 0.5) ** k * zbar**n for n in range(1, 4)),
+                sum((n + 0.5) ** k * zbar**n for n in range(4, 7)),
+            ]
+        )
+        for k in range(4)
+    ]
+    factors = np.concatenate([[1], *blocks[:-1]])
+    actions = np.concatenate([[0.5], *blocks[1:]])
+    tolerance = 3e-4 if coordinate_dtype == jnp.float32 else 2e-9
+    np.testing.assert_allclose(stats["graviton:gram"][0], factors, rtol=tolerance)
+    np.testing.assert_allclose(
+        stats["graviton:hamiltonian"][0], actions, rtol=tolerance
+    )
+    np.testing.assert_allclose(
+        stats["graviton:hamiltonian_square"],
+        np.outer(actions.conj(), actions),
+        rtol=2 * tolerance,
+    )
 
 
 @pytest.mark.parametrize("shear", [(0.0, 0.0), (0.3, -0.2)])
@@ -173,12 +230,16 @@ def test_product_subspace_action_matches_direct_wavefunction_derivatives():
     )
 
 
-def test_coulomb_trial_factors_vanish_at_linear_pair_nodes_and_are_periodic():
+@pytest.mark.parametrize("krylov_order", [1, 3])
+def test_coulomb_trial_factors_vanish_at_linear_pair_nodes_and_are_periodic(
+    krylov_order: int,
+) -> None:
     data = HallData(electrons=jnp.array([[0.2, 0.3], [0.4, 0.6]]))
     estimator = TorusGraviton(
         flux=6,
         ewald_gmax=6,
         trial_radius=0.5,
+        krylov_order=krylov_order,
         f_log_psi=lambda p, d: -jnp.sum(d.electrons**2),
     )
     estimator.init(data, jax.random.key(0))
@@ -186,7 +247,7 @@ def test_coulomb_trial_factors_vanish_at_linear_pair_nodes_and_are_periodic():
     large = data.electrons.at[1].set(data.electrons[0] + jnp.array([0.01 / l1, 0.0]))
     small = data.electrons.at[1].set(data.electrons[0] + jnp.array([0.005 / l1, 0.0]))
     ratio = estimator.trial_factors(small)[1] / estimator.trial_factors(large)[1]
-    np.testing.assert_allclose(ratio, 0.5, rtol=2e-3)
+    np.testing.assert_allclose(ratio, 0.5 ** (2 * krylov_order - 1), rtol=2e-3)
     # Bare stress instead grows as 1/r. The Hamiltonian and transition source
     # retain this physical stress while only the variational basis is bounded.
     np.testing.assert_allclose(
@@ -198,6 +259,56 @@ def test_coulomb_trial_factors_vanish_at_linear_pair_nodes_and_are_periodic():
         estimator.trial_factors(data.electrons.at[0].add(jnp.array([1, -1]))),
         estimator.trial_factors(data.electrons),
         atol=2e-6,
+    )
+
+
+@pytest.mark.requires_x64
+def test_coulomb_krylov_actions_have_integrable_pair_collision_scaling() -> None:
+    flux = 6
+    l1, _, _ = get_torus_lattice(flux, 1j)
+
+    def logpsi(params: Params, data: HallData) -> jnp.ndarray:
+        del params
+        delta = data.electrons[0] - data.electrons[1]
+        return jnp.log(delta[0] + 1j * delta[1]) - jnp.sum(data.electrons**2)
+
+    def point(distance: float) -> HallData:
+        half_distance = distance / (2 * l1)
+        return HallData(
+            electrons=jnp.array(
+                [
+                    [0.25 - half_distance, 0.3],
+                    [0.25 + half_distance, 0.3],
+                ]
+            )
+        )
+
+    estimator = TorusGraviton(
+        flux=flux,
+        krylov_order=3,
+        ewald_gmax=1,
+        f_log_psi=logpsi,
+    )
+    estimator.init(point(0.01), jax.random.key(0))
+    evaluate = jax.jit(estimator.evaluate_single_walker)
+    blocks = []
+    for distance in (0.01, 0.005):
+        stats, _ = evaluate({}, point(distance), {}, None, jax.random.key(0))
+        blocks.append(
+            np.concatenate(
+                [
+                    np.asarray(stats["graviton:gram"][0, 1:2]),
+                    np.asarray(stats["graviton:hamiltonian"][0, 1::2]),
+                ]
+            )
+        )
+    # Psi0 has a linear pair zero. R**3*T1 starts as r**5 after division by
+    # Psi0, and each H application lowers that power by two, through r**-1.
+    # The last action is still square integrable against |Psi0|**2 d^2r.
+    np.testing.assert_allclose(
+        np.abs(blocks[1] / blocks[0]),
+        0.5 ** np.array([5, 3, 1, -1]),
+        rtol=0.05,
     )
 
 

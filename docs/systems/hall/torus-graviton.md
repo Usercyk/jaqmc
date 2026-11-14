@@ -8,8 +8,8 @@ Coulomb interaction.
 
 ## Evaluate a ground-state checkpoint
 
-This configuration enables the spectrum and structure factor. `graviton`
-already includes both mass and interaction stresses.
+This configuration enables up to six Ritz peaks and the structure factor.
+`graviton` already includes both mass and interaction stresses.
 
 ```yaml
 # torus-graviton.yaml
@@ -35,6 +35,9 @@ estimators:
   graviton:
     rcond: 1.0e-6
     trial_radius: 0.5
+    krylov_order: 3
+    trial_power: 3
+    vmap_chunk_size: 1
 run:
   iterations: 1000
   burn_in: 100
@@ -59,8 +62,13 @@ jaqmc hall evaluate --yaml torus-graviton.yaml --dry-run
 On a suitable compute host, the same command without `--dry-run` evaluates
 the checkpoint without parameter updates. The result is
 `evaluation_digest.npz`, with per-step matrices in `evaluation_stats.h5`.
-The `graviton` estimator is evaluation-only. Its coordinate Hessians can be
-substantially more expensive than an ordinary energy evaluation.
+The `graviton` estimator is evaluation-only. `krylov_order=1` retains the
+original two-peak calculation and remains the default. Orders two and three
+provide up to four and six peaks. Three blocks require up to sixth coordinate
+derivatives and can be substantially more expensive than the two-peak
+calculation. `vmap_chunk_size=1` limits simultaneous walker evaluations.
+`jax.enable_x64=true` enables double precision when resolving small Gram
+eigenvalues, with additional computational cost.
 
 For static geometry measurements, `estimators.enabled.stress=true` selects
 {class}`~jaqmc.app.hall.estimator.torus.TorusStress` without constructing the
@@ -150,8 +158,8 @@ Raman response.
 
 ## Excitation matrices and spectral interpretation
 
-{class}`~jaqmc.app.hall.estimator.torus.TorusGraviton` constructs the three
-basis functions $\phi_a=F_a\Psi_0$ with $F=(1,RT_1^V,RT_2^V)$.
+{class}`~jaqmc.app.hall.estimator.torus.TorusGraviton` constructs a
+Hamiltonian Krylov basis from two interaction-stress seed states.
 The smooth periodic pair factor $R$ suppresses short-distance coincidences:
 
 $$
@@ -163,13 +171,35 @@ Here the exponential acts componentwise, and the complex squared norm
 includes both real and imaginary parts. Near coincidence $d_{ij}$ approaches
 the Cartesian pair distance. The radius $a$ is
 `estimators.graviton.trial_radius`, defaulting to $0.5\ell_B$.
-For a linear fermionic zero, $\Psi_0\sim r$, the bare Coulomb stress
-$T_a^V\sim1/r$ produces a trial function whose kinetic quadratic form can
-diverge logarithmically. The extra quadratic zero of $R$ makes the
-regularized trial function behave as $r^2$ and gives a finite kinetic form.
-This follows from short-distance power counting in the complete real-space
-model. The physical Hamiltonian and transition sources $O_\pm$ remain
-unchanged. Varying `trial_radius` tests the dependence on the trial basis.
+The two seeds and full input basis are
+
+$$
+s_a=R^pT_a^V\Psi_0,\qquad
+\Phi=(\Psi_0,s_1,s_2,Hs_1,Hs_2,\ldots,H^{m-1}s_1,H^{m-1}s_2),
+$$
+
+where $m$ is `estimators.graviton.krylov_order`, from one to three.
+`estimators.graviton.trial_power` sets the integer $p\ge m$ and defaults
+to $m$ when unset. For $m=p=1$, the factors are the original
+$F=(1,RT_1^V,RT_2^V)$. With $m=p=3$, the seven input functions yield at most
+six excited Ritz states after reference projection. Krylov blocks use the
+complete real-space Hamiltonian, rather than powers of its small projected
+matrix. Reference projection is performed after constructing all blocks.
+
+At a linear fermionic pair zero, $\Psi_0\sim r$ and $T_a^V\sim1/r$.
+The seeds behave as $r^{2p}$. Each Hamiltonian application can lower the
+radial power by two, so $H^m s_a$ behaves no worse than $r^{2p-2m}$
+in the leading pair-collision power count. Requiring $p\ge m$ keeps the
+actions needed for the full residual square integrable. Repeatedly applying
+$H$ to the original $p=1$ seeds would not satisfy that requirement at
+higher orders. This condition addresses pair-collision integrability, while
+numerical and sampling convergence still need verification.
+
+Holding `trial_power=3` and `trial_radius` fixed while increasing
+`krylov_order` from one to three gives nested spaces for basis convergence
+comparisons. With automatic `trial_power`, the seeds change between orders.
+The physical Hamiltonian and transition sources $O_\pm$ remain unchanged.
+Varying `trial_radius` and `trial_power` tests seed dependence.
 
 With
 $q_{i\mu}=D_{i\mu}\Psi_0/\Psi_0$, the Hamiltonian action is
@@ -182,8 +212,13 @@ $$
 $$
 
 This expression keeps the complete local energy of the approximate reference.
-It requires up to second coordinate derivatives of the wavefunction and of
-the interaction stress. Derivatives of $\log T_a$ are unnecessary.
+The implementation applies the covariant Hamiltonian directly to scaled
+wavefunctions using nested directional derivatives. It avoids constructing
+full high-order derivative tensors and avoids differentiating $\log T_a$ or
+the logarithm of a Krylov state, which can have additional zeros. The
+reference amplitude is divided out using a fixed local log-amplitude anchor.
+Computing all basis actions and residuals requires up to $2m$ coordinate
+derivatives of the reference wavefunction and the seed factors.
 
 The estimator averages
 
@@ -197,7 +232,11 @@ These matrices are saved as `graviton:gram`, `graviton:hamiltonian`, and
 `graviton:transitions`. Digest processing projects out the sampled ground
 reference, truncates small Gram eigenvalues, and solves $Hc=EGc$ on the
 remaining space. Input matrices are symmetrized after recording their
-relative anti-Hermitian norms. Significant negative Gram eigenvalues cause
+relative anti-Hermitian norms. Trial columns are normalized by their
+unprojected norms before Gram diagonalization, so the different scales of
+$s_a$, $Hs_a$, and $H^2s_a$ do not by themselves remove valid directions.
+Returned coefficients are transformed back to the original input basis.
+Significant negative Gram eigenvalues cause
 an error rather than producing invalid spectral weights.
 The unprojected trial-block norm provides a floor for the Gram cutoff scale,
 so subtraction noise in nearly constant operators does not create false modes.
@@ -206,11 +245,11 @@ so subtraction noise in nearly constant operators does not create false modes.
 | --- | --- |
 | `graviton:excitation_energies` | Ritz energies relative to the sampled reference energy |
 | `graviton:weights` | Per-electron discrete peak weights, columns **plus, minus** |
-| `graviton:coefficients` | Normalized Ritz eigenvectors in the original three-state basis |
+| `graviton:coefficients` | Normalized Ritz eigenvectors in the reference plus $2m$ Krylov basis, in block order |
 | `graviton:energy_variances` | Full-Hamiltonian energy variances per Ritz state, in $(\hbar\omega_c)^2$ |
 | `graviton:residual_norms` | Square roots of those variances, in $\hbar\omega_c$ |
 | `graviton:ground_energy` | Real reference Rayleigh energy |
-| `graviton:gram_eigenvalues` | Projected Gram eigenvalues before truncation |
+| `graviton:gram_eigenvalues` | Projected Gram eigenvalues after trial-column normalization, before truncation |
 | `graviton:retained_gram_eigenvalues` | Eigenvalues retained with `rcond` |
 | `graviton:hermiticity_error` | Relative anti-Hermitian norms of raw $G,H$ |
 | `graviton:subspace_weight` | Sum of retained peak weights per channel |
@@ -218,8 +257,11 @@ so subtraction noise in nearly constant operators does not create false modes.
 | `graviton:subspace_centroid` | First moment divided by weight, NaN for zero weight |
 | `graviton:unprojected_norm` | Full unprojected $\langle|O_\pm|^2\rangle/N$ |
 | `graviton:n_ground_references` | Number of supplied ground references, currently one |
+| `graviton:krylov_order` | Number of two-direction Krylov blocks |
+| `graviton:trial_power` | Resolved pair-suppression exponent $p$ |
 
-The two regularized stress trial functions provide at most two Ritz peaks. Their energy
+The $2m$ Krylov trial functions provide at most $2m$ Ritz peaks. Small Gram
+eigenvalues can reduce the number of retained peaks. Their energy
 differences and weights approximate a finite subspace and need basis, sampling,
 system-size, and Ewald convergence checks. Because the physical source is
 not restricted to the trial basis, the retained moments describe captured
@@ -257,8 +299,9 @@ $$
 
 as `graviton:hamiltonian_square`. This is $\langle H\phi_a|H\phi_b\rangle$
 in the same normalization as $G$. It is not the square of the projected
-Hamiltonian matrix. The existing second-derivative Hamiltonian actions
-provide this statistic without additional coordinate derivatives.
+Hamiltonian matrix. Actions through $H^m s_a$ provide this statistic
+without applying $H$ twice to each basis state. For three blocks, the
+highest action is $H^3s_a$, with up to sixth coordinate derivatives.
 
 For a Ritz vector $c_n$, its total Rayleigh energy is
 $E_n=\texttt{ground\_energy}+\Delta_n$. The residual obeys
